@@ -26,14 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
-import numpy as np
 import os
+import math
 import torch
+import numpy as np
 
-
-from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask
+from isaacgymenvs.utils.torch_jit_utils import *
 
 from isaacgym import gymutil, gymtorch, gymapi
 
