@@ -33,6 +33,7 @@ import torch
 import xml.etree.ElementTree as ET
 
 from isaacgymenvs.utils.torch_jit_utils import *
+from isaacgymenvs.utils.POMDP import POMDPWrapper
 from .base.vec_task import VecTask
 
 from isaacgym import gymutil, gymtorch, gymapi
@@ -50,6 +51,9 @@ class Ingenuity(VecTask):
         # 0:13 - root state
         self.cfg["env"]["numObservations"] = 13
 
+        # POMDP
+        self.POMDP = POMDPWrapper(pomdp='flicker')
+
         # Actions:
         # 0:3 - xyz force vector for lower rotor
         # 4:6 - xyz force vector for upper rotor
@@ -57,8 +61,8 @@ class Ingenuity(VecTask):
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
-        dofs_per_env = 4
-        bodies_per_env = 6
+        dofs_per_env = 4 + 4
+        bodies_per_env = 5 + 15
 
         self.root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -69,13 +73,16 @@ class Ingenuity(VecTask):
         self.root_states = vec_root_tensor[:, 0, :]
         self.root_positions = self.root_states[:, 0:3]
         self.target_root_positions = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
-        self.target_root_positions[:, 2] = 1
+        self.target_root_positions[:, 2] = 0.377
         self.root_quats = self.root_states[:, 3:7]
         self.root_linvels = self.root_states[:, 7:10]
         self.root_angvels = self.root_states[:, 10:13]
 
-        self.marker_states = vec_root_tensor[:, 1, :]
-        self.marker_positions = self.marker_states[:, 0:3]
+        self.husky_states = vec_root_tensor[:, 1, :]
+        self.husky_positions = self.husky_states[:, 0:3]
+        self.husky_quats = self.husky_states[:, 3:7]
+        self.husky_linvels = self.husky_states[:, 7:10]
+        self.husky_angvels = self.husky_states[:, 10:13]
 
         self.dof_states = vec_dof_tensor
         self.dof_positions = vec_dof_tensor[..., 0]
@@ -85,6 +92,7 @@ class Ingenuity(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
 
         self.initial_root_states = self.root_states.clone()
+        self.initial_husky_states = self.husky_states.clone()
         self.initial_dof_states = self.dof_states.clone()
 
         self.thrust_lower_limit = 0
@@ -114,7 +122,7 @@ class Ingenuity(VecTask):
         # Mars gravity
         self.sim_params.gravity.x = 0
         self.sim_params.gravity.y = 0
-        self.sim_params.gravity.z = -3.721
+        self.sim_params.gravity.z = -9.81
 
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self.dt = self.sim_params.dt
@@ -249,15 +257,30 @@ class Ingenuity(VecTask):
         asset_options.slices_per_cylinder = 40
         asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
-        asset_options.fix_base_link = True
-        marker_asset = self.gym.create_sphere(self.sim, 0.1, asset_options)
+        asset_root = "/home/sesem/WorldWideWeb/Ouzelum/assets"
+        asset_file = "urdf/husky_description/urdf/husky.urdf"
+
+        self.top_plate_extent = torch.tensor([[-0.3663348,-0.29796878,0.000043182],
+                                              [0.36366522,0.2920312,0.0063931034]],
+                                              device=self.device) * 0.5
+
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = False
+        asset_options.flip_visual_attachments = True
+        asset_options.use_mesh_materials = True
+        husky_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
         default_pose = gymapi.Transform()
         default_pose.p.z = 1.0
 
+        default_husky_pose = gymapi.Transform()
+        default_husky_pose.p.z = 0.1
+
         self.envs = []
         self.actor_handles = []
+        self.husky_handles = []
         for i in range(self.num_envs):
+
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
             actor_handle = self.gym.create_actor(env, asset, default_pose, "ingenuity", i, 1, 1)
@@ -267,10 +290,17 @@ class Ingenuity(VecTask):
             dof_props['damping'].fill(0)
             self.gym.set_actor_dof_properties(env, actor_handle, dof_props)
 
-            marker_handle = self.gym.create_actor(env, marker_asset, default_pose, "marker", i, 1, 1)
-            self.gym.set_rigid_body_color(env, marker_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, gymapi.Vec3(1, 0, 0))
+            husky_handle = self.gym.create_actor(env, husky_asset, default_husky_pose, "husky", i, 1, 1)
+            dof_props = self.gym.get_actor_dof_properties(env, husky_handle)
+            dof_props["driveMode"] = (gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL)
+            dof_props['stiffness'].fill(0)
+            dof_props['damping'].fill(100)
+            self.gym.set_actor_dof_properties(env, husky_handle, dof_props)
+            self.gym.set_actor_dof_velocity_targets(env, husky_handle, [10.0, -20.0, 20.0, -10.0])
+
 
             self.actor_handles.append(actor_handle)
+            self.husky_handles.append(husky_handle)
             self.envs.append(env)
 
         if self.debug_viz:
@@ -282,18 +312,6 @@ class Ingenuity(VecTask):
                 self.rotor_env_offsets[i, ..., 1] = env_origin.y
                 self.rotor_env_offsets[i, ..., 2] = env_origin.z
 
-    def set_targets(self, env_ids):
-        num_sets = len(env_ids)
-        # set target position randomly with x, y in (-5, 5) and z in (1, 2)
-        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 10) - 5
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) + 1
-        self.marker_positions[env_ids] = self.target_root_positions[env_ids]
-        # copter "position" is at the bottom of the legs, so shift the target up so it visually aligns better
-        self.marker_positions[env_ids, 2] += 0.4
-        actor_indices = self.all_actor_indices[env_ids, 1].flatten()
-
-        return actor_indices
-
     def reset_idx(self, env_ids):
 
         # set rotor speeds
@@ -302,10 +320,7 @@ class Ingenuity(VecTask):
 
         num_resets = len(env_ids)
 
-        target_actor_indices = self.set_targets(env_ids)
-
         actor_indices = self.all_actor_indices[env_ids, 0].flatten()
-
         self.root_states[env_ids] = self.initial_root_states[env_ids]
         self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
@@ -313,25 +328,34 @@ class Ingenuity(VecTask):
 
         self.gym.set_dof_state_tensor_indexed(self.sim, self.dof_state_tensor, gymtorch.unwrap_tensor(actor_indices), num_resets)
 
+        # Select husky in env_ids or reset if farther than 2X environment spacing
+        husky_indices = torch.tensor([-1],device=self.device,dtype=torch.int32)
+        for env_id in env_ids:
+            if (torch.abs(self.husky_states[env_id, 0]) > 2*(self.cfg["env"]['envSpacing'])) or \
+                    (torch.abs(self.husky_states[env_id, 1]) > 2*(self.cfg["env"]['envSpacing'])):
+                self.husky_states[env_id] = self.initial_husky_states[env_id]
+                self.husky_states[env_id, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()[0]
+                self.husky_states[env_id, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()[0]
+                husky_indices = torch.cat([husky_indices, torch.tensor([(2*env_id.item())+1],device=self.device,dtype=torch.int32)])
+
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
 
-        return torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        if len(husky_indices)>1:
+            husky_indices = husky_indices[1:]
+            return torch.unique(torch.cat([actor_indices,husky_indices]))
+        return actor_indices
 
     def pre_physics_step(self, _actions):
 
         # resets
-        set_target_ids = (self.progress_buf % 500 == 0).nonzero(as_tuple=False).squeeze(-1)
-        target_actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
-        if len(set_target_ids) > 0:
-            target_actor_indices = self.set_targets(set_target_ids)
 
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
         if len(reset_env_ids) > 0:
             actor_indices = self.reset_idx(reset_env_ids)
 
-        reset_indices = torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        reset_indices = torch.unique(actor_indices)
         if len(reset_indices) > 0:
             self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(reset_indices), len(reset_indices))
 
@@ -355,6 +379,13 @@ class Ingenuity(VecTask):
         self.thrusts[reset_env_ids] = 0.0
         self.forces[reset_env_ids] = 0.0
 
+        # Apply husky dof velocities
+        # self.dof_velocities[:,4] = 10
+        # self.dof_velocities[:,5] = -20
+        # self.dof_velocities[:,6] = 20
+        # self.dof_velocities[:,7] = -10
+        # self.gym.set_dof_velocity_target_tensor(self.sim,gymtorch.unwrap_tensor(self.dof_velocities.contiguous()))
+
         # apply actions
         self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.forces), None, gymapi.LOCAL_SPACE)
 
@@ -364,6 +395,9 @@ class Ingenuity(VecTask):
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
+
+        self.target_root_positions[:,0:2] = self.husky_states[:,0:2].clone()
+        self.target_root_positions[:,0] += 0.08 # Top plate X-shift
 
         self.compute_observations()
         self.compute_reward()
@@ -390,12 +424,16 @@ class Ingenuity(VecTask):
         self.obs_buf[..., 3:7] = self.root_quats
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
+        
+        self.obs_buf = self.POMDP.observation(self.obs_buf)
+        print(self.POMDP.observation(self.obs_buf))
         return self.obs_buf
 
     def compute_reward(self):
         self.rew_buf[:], self.reset_buf[:] = compute_ingenuity_reward(
             self.root_positions,
             self.target_root_positions,
+            self.top_plate_extent,
             self.root_quats,
             self.root_linvels,
             self.root_angvels,
@@ -408,12 +446,18 @@ class Ingenuity(VecTask):
 #####################################################################
 
 @torch.jit.script
-def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+def compute_ingenuity_reward(root_positions, target_root_positions, top_plate_extent, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # distance to target
     target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
+
+    # Use top_plate extent to calculate reward for landing on the top plate
+    # top_plate_front_left_vertice  = target_root_positions[:,0:2] + (top_plate_extent[0,0:2] * torch.tensor([1,1],device=top_plate_extent.device))
+    # top_plate_front_right_vertice = target_root_positions[:,0:2] + (top_plate_extent[0,0:2] * torch.tensor([1,-1],device=top_plate_extent.device))
+    # top_plate_rear_left_vertice   = target_root_positions[:,0:2] + (top_plate_extent[1,0:2] * torch.tensor([-1,1],device=top_plate_extent.device))
+    # top_plate_rear_right_vertice  = target_root_positions[:,0:2] - (top_plate_extent[1,0:2] * torch.tensor([1,1],device=top_plate_extent.device))
 
     # uprightness
     ups = quat_axis(root_quats, 2)
@@ -432,7 +476,8 @@ def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, 
     ones = torch.ones_like(reset_buf)
     die = torch.zeros_like(reset_buf)
     die = torch.where(target_dist > 8.0, ones, die)
-    die = torch.where(root_positions[..., 2] < 0.5, ones, die)
+    die = torch.where(root_positions[..., 2] < 0.3, ones, die)
+    die = torch.where(root_positions[..., 2] > 3.0, ones, die)
 
     # resets due to episode length
     reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)
