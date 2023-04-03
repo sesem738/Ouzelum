@@ -147,7 +147,7 @@ class Ingenuity(VecTask):
 
         mesh_asset = ET.SubElement(root, "asset")
 
-        model_path = "../assets/glb/ingenuity/"
+        model_path = "../../assets/glb/ingenuity/"
         mesh = ET.SubElement(mesh_asset, "mesh")
         mesh.attrib["file"] = model_path + "chassis.glb"
         mesh.attrib["name"] = "ingenuity_mesh"
@@ -426,7 +426,7 @@ class Ingenuity(VecTask):
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         
         self.obs_buf = self.POMDP.observation(self.obs_buf)
-        print(self.POMDP.observation(self.obs_buf))
+        #print(self.POMDP.observation(self.obs_buf))
         return self.obs_buf
 
     def compute_reward(self):

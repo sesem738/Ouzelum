@@ -67,7 +67,7 @@ class Env(ABC):
             graphics_device_id: the device ID to render with.
             headless: Set to False to disable viewer rendering.
         """
-
+        
         split_device = sim_device.split(":")
         self.device_type = split_device[0]
         self.device_id = int(split_device[1]) if len(split_device) > 1 else 0
