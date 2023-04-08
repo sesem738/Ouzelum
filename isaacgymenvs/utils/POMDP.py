@@ -2,7 +2,7 @@ import torch
 
 
 class POMDPWrapper():
-    def __init__(self, pomdp='flicker', flicker_prob=0.4, 
+    def __init__(self, pomdp='flicker', flicker_prob=0.1, 
                  random_noise_sigma=0.1, randon_sensor_missing_prob=0.1):
         
         self.pomdp = pomdp

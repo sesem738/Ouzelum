@@ -156,7 +156,8 @@ if __name__=="__main__":
         dones[step] = next_done
 
         for _ in range (num_transitions_per_env):
-            next_obs, reward, done, info = envs.step(torch.rand((args.num_envs,)+envs.action_space.shape, device="cuda:0"))
+            
+            next_obs, reward, done, info = envs.step(actions)
 
 
         

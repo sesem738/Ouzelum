@@ -16,3 +16,5 @@ for _ in range(20):
 	obs, reward, done, info = envs.step(
 		torch.rand((2000,)+envs.action_space.shape, device="cuda:0")
 	)
+	
+print(obs)
