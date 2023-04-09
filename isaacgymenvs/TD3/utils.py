@@ -1,3 +1,6 @@
+import gym
+import torch 
+
 class RecordEpisodeStatisticsTorch(gym.Wrapper):
     def __init__(self, env, device):
         super().__init__(env)
