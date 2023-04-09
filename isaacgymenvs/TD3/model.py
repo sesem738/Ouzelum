@@ -21,6 +21,7 @@ class QNetwork(nn.Module):
 class Actor(nn.Module):
     def __init__(self, env):
         super().__init__()
+
         self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mu = nn.Linear(256, np.prod(env.single_action_space.shape))

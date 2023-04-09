@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_envs", default=2048, type=int)       # Number of Parallel Environments
     parser.add_argument("--cuda", default=True, type=bool)          # CUDA
     parser.add_argument("--seed", default=0, type=int)              # Sets Gym, PyTorch and Numpy seeds
-    parser.add_argument("--start_timesteps", default=25e3, type=int)# Time steps initial random policy is used
+    parser.add_argument("--learning_starts", default=25e3, type=int)# Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=5e3, type=int)       # How often (time steps) we evaluate
     parser.add_argument("--total_timesteps", default=1e6, type=int) # Max time steps to run environment
     parser.add_argument("--expl_noise", default=0.1)                # Std of Gaussian exploration noise
@@ -86,7 +86,6 @@ if __name__ == "__main__":
     kwargs["policy_noise"] = args.policy_noise * max_action
     kwargs["noise_clip"] = args.noise_clip * max_action
     kwargs["policy_freq"] = args.policy_freq
-
     
     agent = TD3(**kwargs)
 
@@ -96,12 +95,12 @@ if __name__ == "__main__":
 
     envs.single_observation_space.dtype = np.float32
 
-    print(envs.observation_space)
     rb = ReplayBuffer(
-        args.buffer_size,
+        int(args.buffer_size),
         envs.single_observation_space,
         envs.single_action_space,
         "cuda",
+        n_envs=int(args.num_envs),
         handle_timeout_termination=True,
     )
     
@@ -109,36 +108,29 @@ if __name__ == "__main__":
     
     obs = envs.reset()
     
-    for global_step in range(args.total_timesteps):
+    for global_step in range(int(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            actions = torch.from_numpy(actions)
         else:
             actions = agent.select_action(obs)
 
         # Execute the game and log data.
         next_obs, rewards, dones, infos = envs.step(actions)
 
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
-        for info in infos:
-            if "episode" in info.keys():
-                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-                break
-
         # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
-        real_next_obs = next_obs.copy()
+        real_next_obs = torch.clone(next_obs)
         for idx, d in enumerate(dones):
             if d:
                 real_next_obs[idx] = infos[idx]["terminal_observation"]
-                episodic_return = info["r"][idx].item()
+                episodic_return = infos["r"][idx].item()
                 print(f"global_step={global_step}, episodic_return={episodic_return}")
                 writer.add_scalar("charts/episodic_return", episodic_return, global_step)
-                writer.add_scalar("charts/episodic_length", info["l"][idx], global_step)
-                if "consecutive_successes" in info:  # ShadowHand and AllegroHand metric
+                writer.add_scalar("charts/episodic_length", infos["l"][idx], global_step)
+                if "consecutive_successes" in infos:  # ShadowHand and AllegroHand metric
                     writer.add_scalar(
-                        "charts/consecutive_successes", info["consecutive_successes"].item(), global_step
+                        "charts/consecutive_successes", infos["consecutive_successes"].item(), global_step
                     )
                 break
         rb.add(obs, real_next_obs, actions, rewards, dones, infos)

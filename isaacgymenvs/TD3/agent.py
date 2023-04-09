@@ -16,28 +16,31 @@ class TD3(object):
             policy_freq=2
     ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(envs).to(self.device)
-        self.target_actor = Actor(envs).to(self.device)
+        self.envs = envs
+
+        self.actor = Actor(self.envs).to(self.device)
+        self.target_actor = Actor(self.envs).to(self.device)
         self.target_actor.load_state_dict(self.actor.state_dict())
-        actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=3e-4)
+        self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=3e-4)
         
-        self.qf1 = QNetwork(envs).to(self.device)
-        self.qf2 = QNetwork(envs).to(self.device)
-        self.qf1_target = QNetwork(envs).to(self.device)
-        self.qf2_target = QNetwork(envs).to(self.device)
+        self.qf1 = QNetwork(self.envs).to(self.device)
+        self.qf2 = QNetwork(self.envs).to(self.device)
+        self.qf1_target = QNetwork(self.envs).to(self.device)
+        self.qf2_target = QNetwork(self.envs).to(self.device)
         self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=3e-4)
 
-        self.envs = envs
+        
         self.discount = discount
         self.tau = tau
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
         self.policy_freq = policy_freq
+        self.exploration_noise = 0.1
 
     def select_action(self, state):
-        actions = Actor(state)
+        actions = self.actor(state)
         actions += torch.normal(0, self.actor.action_scale * self.exploration_noise)
-        actions = actions.clip(self.envs.single_action_space.low, self.envs.single_action_space.high)
+        actions = actions.clip(torch.from_numpy(self.envs.single_action_space.low).to(self.device), torch.from_numpy(self.envs.single_action_space.high).to(self.device))
         return actions
 
     def train(self, rb, batch_size):
