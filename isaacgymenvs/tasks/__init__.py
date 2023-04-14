@@ -47,6 +47,7 @@ from .shadow_hand import ShadowHand
 from .allegro_hand import AllegroHand
 from .trifinger import Trifinger
 from .ouzelum import Ouzelum
+from .hawks import Hawks
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -67,6 +68,7 @@ isaacgym_task_map = {
     "HumanoidAMP": HumanoidAMP,
     "Ingenuity": Ingenuity,
     "Quadcopter": Quadcopter,
+    "Hawks": Hawks,
     "ShadowHand": ShadowHand,
     "Trifinger": Trifinger,
     "Ouzelum": Ouzelum,
