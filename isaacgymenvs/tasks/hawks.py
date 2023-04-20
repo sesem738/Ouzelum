@@ -51,8 +51,8 @@ class Hawks(VecTask):
         # 0:13 - root state
         self.cfg["env"]["numObservations"] = 13
 
-        # POMDP
-        self.POMDP = POMDPWrapper(pomdp='flicker')
+        # Partially Observability
+        self.POMDP = POMDPWrapper(pomdp='random_sensor_missing')
 
         # Actions:
         # 0:3 - xyz force vector for lower rotor
@@ -119,7 +119,7 @@ class Hawks(VecTask):
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
 
-        # Mars gravity
+        # Gravity
         self.sim_params.gravity.x = 0
         self.sim_params.gravity.y = 0
         self.sim_params.gravity.z = -9.81
@@ -426,7 +426,6 @@ class Hawks(VecTask):
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         
         self.obs_buf = self.POMDP.observation(self.obs_buf)
-        #print(self.POMDP.observation(self.obs_buf))
         return self.obs_buf
 
     def compute_reward(self):

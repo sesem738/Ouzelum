@@ -3,12 +3,14 @@ import torch
 
 class POMDPWrapper():
     def __init__(self, pomdp='flicker', flicker_prob=0.5, 
-                 random_noise_sigma=0.1, randon_sensor_missing_prob=0.1):
+                 random_noise_sigma=0.4, random_sensor_missing_prob=0.05):
         
         self.pomdp = pomdp
         self.flicker_prob = flicker_prob
         self.random_noise_sigma = random_noise_sigma
-        self.random_sensor_missing_prob = randon_sensor_missing_prob
+        self.random_sensor_missing_prob = random_sensor_missing_prob
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        print("POMDP is ", pomdp, " ", random_sensor_missing_prob)
 
     def observation(self, obs):
         if self.pomdp == 'flicker':
@@ -17,9 +19,9 @@ class POMDPWrapper():
             else:
                 return obs
         elif self.pomdp == "random_noise":
-            return (obs + torch.randn(0, self.random_noise_sigma, obs.shape))
+            return (obs + torch.normal(0, self.random_noise_sigma, obs.shape).to("cuda:0"))
         elif self.pomdp == "random_sensor_missing":
-            obs[torch.rand(len(obs)) <= self.random_sensor_missing_prob] = 0
+            obs[:, torch.rand(obs.shape[1]) <= self.random_sensor_missing_prob] = 0
             return obs
         elif self.pomdp == 'flickering_and_random_noise':
             # Flickering
