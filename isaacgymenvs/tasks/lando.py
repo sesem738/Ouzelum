@@ -37,7 +37,7 @@ from isaacgymenvs.utils.torch_jit_utils import *
 from isaacgym import gymutil, gymtorch, gymapi
 
 
-class Ouzelum(VecTask):
+class Lando(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -59,7 +59,7 @@ class Ouzelum(VecTask):
         dofs_per_env = self.num_dofs + 4
         
         #Num of bodies including target
-        bodies_per_env = self.num_bodies + 16
+        bodies_per_env = self.num_bodies + 15
 
         self.root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -213,8 +213,6 @@ class Ouzelum(VecTask):
 
         num_resets = len(env_ids)
 
-        target_actor_indices = self.set_targets(env_ids)
-
         actor_indices = self.all_actor_indices[env_ids, 0].flatten()
 
         self.root_states[env_ids] = self.initial_root_states[env_ids]
@@ -245,17 +243,13 @@ class Ouzelum(VecTask):
     def pre_physics_step(self, _actions):
 
         # resets
-        set_target_ids = (self.progress_buf % 500 == 0).nonzero(as_tuple=False).squeeze(-1)
-        target_actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
-        if len(set_target_ids) > 0:
-            target_actor_indices = self.set_targets(set_target_ids)
 
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
         if len(reset_env_ids) > 0:
             actor_indices = self.reset_idx(reset_env_ids)
 
-        reset_indices = torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        reset_indices = torch.unique(actor_indices)
         if len(reset_indices) > 0:
             self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(reset_indices), len(reset_indices))
 
