@@ -174,14 +174,14 @@ class Lando(VecTask):
         for i in range(self.num_envs):
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            actor_handle = self.gym.create_actor(env, asset, default_pose, "Drone", i, 1, 1)
+            actor_handle = self.gym.create_actor(env, asset, default_pose, "Drone", i, 0, 1)
 
             dof_props = self.gym.get_actor_dof_properties(env, actor_handle)
             dof_props['stiffness'].fill(0)
             dof_props['damping'].fill(0)
             self.gym.set_actor_dof_properties(env, actor_handle, dof_props)
 
-            husky_handle = self.gym.create_actor(env, husky_asset, default_husky_pose, "husky", i, 1, 1)
+            husky_handle = self.gym.create_actor(env, husky_asset, default_husky_pose, "husky", i, 0, 1)
             dof_props = self.gym.get_actor_dof_properties(env, husky_handle)
             dof_props["driveMode"] = (gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL)
             dof_props['stiffness'].fill(0)
@@ -264,6 +264,15 @@ class Lando(VecTask):
         self.forces[:, 3, 2] = self.thrusts[:, 2]
         self.forces[:, 4, 2] = self.thrusts[:, 3]
 
+        target_dist = torch.sqrt(torch.square(self.target_root_positions - self.root_positions).sum(-1))
+
+        if target_dist < 0.2:
+            print("triggered")
+            self.forces[:, 1, 2] = 0
+            self.forces[:, 2, 2] = 0
+            self.forces[:, 3, 2] = 0
+            self.forces[:, 4, 2] = 0
+
         # clear actions for reset envs
         self.thrusts[reset_env_ids] = 0.0
         self.forces[reset_env_ids] = 0.0
@@ -315,6 +324,7 @@ class Lando(VecTask):
             self.root_quats,
             self.root_linvels,
             self.root_angvels,
+            self.forces,
             self.reset_buf, self.progress_buf, self.max_episode_length
         )
 
@@ -324,12 +334,13 @@ class Lando(VecTask):
 #####################################################################
 
 @torch.jit.script
-def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, root_linvels, root_angvels, forces, reset_buf, progress_buf, max_episode_length):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # distance to target
     target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
+    
 
     # uprightness
     ups = quat_axis(root_quats, 2)
@@ -339,6 +350,7 @@ def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, 
     # spinning
     spinnage = torch.abs(root_angvels[..., 2])
     spinnage_reward = 1.0 / (1.0 + spinnage * spinnage)
+        
 
     # combined reward
     # uprigness and spinning only matter when close to the target
@@ -348,7 +360,7 @@ def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, 
     ones = torch.ones_like(reset_buf)
     die = torch.zeros_like(reset_buf)
     die = torch.where(target_dist > 8.0, ones, die)
-    die = torch.where(root_positions[..., 2] < 0.5, ones, die)
+    die = torch.where(root_positions[..., 2] < 0.3, ones, die)
 
     # resets due to episode length
     reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)

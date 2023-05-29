@@ -1,6 +1,3 @@
-import gym
-import torch 
-
 class RecordEpisodeStatisticsTorch(gym.Wrapper):
     def __init__(self, env, device):
         super().__init__(env)
@@ -10,7 +7,6 @@ class RecordEpisodeStatisticsTorch(gym.Wrapper):
         self.episode_lengths = None
 
     def reset(self, **kwargs):
-        print(**kwargs)
         observations = super().reset(**kwargs)
         self.episode_returns = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         self.episode_lengths = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
