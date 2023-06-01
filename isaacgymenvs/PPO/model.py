@@ -23,7 +23,7 @@ class Actor(nn.Module):
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(self.act_space.shape)))
     
-    def forward(self, state):
+    def forward(self, state, action=None):
         action_mean = self.actor_mean(state)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
@@ -45,4 +45,6 @@ class Critic(nn.Module):
         )
     
     def forward(self,state):
-        return self.critic(state)
+        x = self.critic(state)
+        x = torch.reshape(x, (-1,))
+        return x

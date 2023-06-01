@@ -44,13 +44,17 @@ if __name__=="__main__":
 
     )
 
+    # Environment Setup
     envs = ExtractObsWrapper(envs)
     envs = RecordEpisodeStatisticsTorch(envs, device)
     envs.single_action_space = envs.action_space
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    # ALGO Logic: Storage setup
+    # Agent Setup
+    
+
+    # Storage setup
     obs = torch.zeros((args.rollout_steps, args.num_envs) + envs.single_observation_space.shape, dtype=torch.float).to(device)
     actions = torch.zeros((args.rollout_steps, args.num_envs) + envs.single_action_space.shape, dtype=torch.float).to(device)
     logprobs = torch.zeros((args.rollout_steps, args.num_envs), dtype=torch.float).to(device)
@@ -63,7 +67,7 @@ if __name__=="__main__":
     next_obs = envs.reset()
     next_done = torch.zeros(args.num_envs, dtype=torch.float).to(device)
 
-    for global_step in range(args.total_steps):
+    while global_step <= args.total_steps:
         for step in range(0, args.rollout_steps):
             global_step += envs.num_envs
             obs[step] = next_obs
@@ -71,7 +75,8 @@ if __name__=="__main__":
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             actions = torch.from_numpy(actions)
             next_obs, rewards[step], next_done, info = envs.step(actions)
-        
 
+        mean_rewards = torch.mean(rewards)
+        print(f"Episode {global_step}, Average rewards {mean_rewards}")
 
         
