@@ -8,6 +8,7 @@ import isaacgym  # noqa
 import isaacgymenvs
 import numpy as np
 import torch
+from agent import PPO
 from torch.utils.tensorboard import SummaryWriter
 from utils import RecordEpisodeStatisticsTorch, ExtractObsWrapper
 
@@ -52,7 +53,7 @@ if __name__=="__main__":
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
     # Agent Setup
-    
+    agent = PPO(envs.single_observation_space, envs.single_action_space, envs.num_envs, device)
 
     # Storage setup
     obs = torch.zeros((args.rollout_steps, args.num_envs) + envs.single_observation_space.shape, dtype=torch.float).to(device)
@@ -72,11 +73,16 @@ if __name__=="__main__":
             global_step += envs.num_envs
             obs[step] = next_obs
             dones[step] = next_done
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            actions = torch.from_numpy(actions)
-            next_obs, rewards[step], next_done, info = envs.step(actions)
+            
+            with torch.no_grad():
+                action, logprob, _, = agent.getAction(next_obs)
+            actions[step] = action
+            logprobs[step] = logprob
+            
+            next_obs, rewards[step], next_done, info = envs.step(action)
 
+        agent.train(obs, actions, next_obs, next_done, logprobs, rewards, dones)
         mean_rewards = torch.mean(rewards)
-        print(f"Episode {global_step}, Average rewards {mean_rewards}")
+        print(f"Step: {global_step}, Average rewards {mean_rewards}")
 
         

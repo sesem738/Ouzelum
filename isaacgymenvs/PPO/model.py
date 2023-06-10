@@ -9,8 +9,8 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     return layer
 
 class Actor(nn.Module):
-    def __init__(self,single_observation_space,single_action_space) -> None:
-
+    def __init__(self,single_observation_space,single_action_space):
+        super().__init__()
         self.obs_space = single_observation_space
         self.act_space = single_action_space
 
@@ -34,8 +34,8 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
     def __init__(self,single_observation_space) -> None:
+        super().__init__()
         self.obs_space = single_observation_space
-
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(self.obs_space.shape).prod(), 256)),
             nn.Tanh(),
@@ -46,5 +46,4 @@ class Critic(nn.Module):
     
     def forward(self,state):
         x = self.critic(state)
-        x = torch.reshape(x, (-1,))
         return x
