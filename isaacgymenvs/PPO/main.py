@@ -18,7 +18,7 @@ def parse_args():
     p.add_argument("--seed", default=0, type=int)
     p.add_argument("--num_envs", type=int, default=4096)
     p.add_argument("--rollout_steps", type=int, default=16)
-    p.add_argument("--total_steps", type=int, default=3000000)
+    p.add_argument("--total_steps", type=int, default=30000000)
     p.add_argument("--headless", action="store_true")
     
     args = p.parse_args()
@@ -80,9 +80,11 @@ if __name__=="__main__":
             logprobs[step] = logprob
             
             next_obs, rewards[step], next_done, info = envs.step(action)
-
+        
         agent.train(obs, actions, next_obs, next_done, logprobs, rewards, dones)
         mean_rewards = torch.mean(rewards)
         print(f"Step: {global_step}, Average rewards {mean_rewards}")
+    
+    agent.save('PPO_06_10_1330')
 
         

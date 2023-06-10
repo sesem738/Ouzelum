@@ -56,12 +56,13 @@ class PPO:
 
     def train(self, obs, actions, next_obs, next_done, logprobs, rewards, dones):
 
+        values = self.critic(obs)
+        returns, advantages = self.getGAE(next_obs, next_done, rewards, dones, values.reshape(16, 4096))
+        
         b_obs = obs.reshape((-1,) + self.obs_dim.shape)
         b_actions = actions.reshape((-1,) + self.act_dim.shape)
         b_logprobs = logprobs.reshape(-1)
-        values = self.critic(obs)
         b_values = values.reshape(-1)
-        returns, advantages = self.getGAE(next_obs, next_done, rewards, dones, values.reshape(16, 4096))
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
 
@@ -70,7 +71,7 @@ class PPO:
 
         clipfracs = []
         for epoch in range(self.update_epochs):
-            b_inds = torch.randperm(self.batch_size, device=self.device)
+            b_inds = torch.from_numpy(np.random.permutation(self.batch_size)).to(self.device)
             for start in range(0, self.batch_size, self.minibatch_size):
                 end = start + self.minibatch_size
                 mb_inds = b_inds[start:end]
@@ -111,12 +112,18 @@ class PPO:
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
+                actor_loss = pg_loss - self.ent_coef * entropy_loss
+                critic_loss = v_loss * self.vf_coef
 
                 self.actor_optimizer.zero_grad()
-                loss.backward()
+                actor_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
                 self.actor_optimizer.step()
+
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
+                self.critic_optimizer.step()
 
             if self.target_kl is not None:
                 if approx_kl > self.target_kl:
