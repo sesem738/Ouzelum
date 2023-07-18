@@ -26,20 +26,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
-import numpy as np
 import os
+import csv
+import math
 import torch
-import xml.etree.ElementTree as ET
+import numpy as np
 
+from .base.vec_task import VecTask
 from isaacgymenvs.utils.torch_jit_utils import *
 from isaacgymenvs.utils.POMDP import POMDPWrapper
-from .base.vec_task import VecTask
 
 from isaacgym import gymutil, gymtorch, gymapi
 
 
-class Hawks(VecTask):
+class Landed(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -51,18 +51,20 @@ class Hawks(VecTask):
         # 0:13 - root state
         self.cfg["env"]["numObservations"] = 13
 
-        # Partially Observability
-        # self.POMDP = POMDPWrapper(pomdp='random_sensor_missing')
-
         # Actions:
         # 0:3 - xyz force vector for lower rotor
         # 4:6 - xyz force vector for upper rotor
-        self.cfg["env"]["numActions"] = 6
+        self.cfg["env"]["numActions"] = 4
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
-        dofs_per_env = 4 + 4
-        bodies_per_env = 5 + 15
+        # Partially Observability
+        self.POMDP = POMDPWrapper(pomdp='flicker', flicker_prob=0.01)
+        
+        dofs_per_env = self.num_dofs + 4
+        
+        #Num of bodies including target
+        bodies_per_env = self.num_bodies + 15
 
         self.root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -95,15 +97,24 @@ class Hawks(VecTask):
         self.initial_husky_states = self.husky_states.clone()
         self.initial_dof_states = self.dof_states.clone()
 
-        self.thrust_lower_limit = 0
-        self.thrust_upper_limit = 2000
-        self.thrust_lateral_component = 0.2
+        self.epi = 0
+        self.Landoa = 0
+        self.flag = False
+
+        max_thrust = 2000
+        self.thrust_lower_limits = torch.zeros(4, device=self.device, dtype=torch.float32)
+        self.thrust_upper_limits = max_thrust * torch.ones(4, device=self.device, dtype=torch.float32)
 
         # control tensors
-        self.thrusts = torch.zeros((self.num_envs, 2, 3), dtype=torch.float32, device=self.device, requires_grad=False)
+        self.thrusts = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
         self.forces = torch.zeros((self.num_envs, bodies_per_env, 3), dtype=torch.float32, device=self.device, requires_grad=False)
 
         self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, 2))
+
+        self.output_file = f"trajectories/{self.POMDP.pomdp}_{self.POMDP.prob}_ep_{self.epi}.csv"
+        with open(self.output_file, mode="w") as file:
+            writer = csv.writer(file)
+            writer.writerow(['Position X', 'Position Y', 'Position Z'])
 
         if self.viewer:
             cam_pos = gymapi.Vec3(2.25, 2.25, 3.0)
@@ -126,117 +137,9 @@ class Hawks(VecTask):
 
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self.dt = self.sim_params.dt
-        self._create_ingenuity_asset()
         self._create_ground_plane()
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
-    def _create_ingenuity_asset(self):
-        chassis_size = 0.06
-        rotor_axis_length = 0.2
-        rotor_radius = 0.15
-        rotor_thickness = 0.01
-        rotor_arm_radius = 0.01
-
-        root = ET.Element('mujoco')
-        root.attrib["model"] = "Ingenuity"
-
-        compiler = ET.SubElement(root, "compiler")
-        compiler.attrib["angle"] = "degree"
-        compiler.attrib["coordinate"] = "local"
-        compiler.attrib["inertiafromgeom"] = "true"
-
-        mesh_asset = ET.SubElement(root, "asset")
-
-        model_path = "../assets/glb/ingenuity/"
-        mesh = ET.SubElement(mesh_asset, "mesh")
-        mesh.attrib["file"] = model_path + "chassis.glb"
-        mesh.attrib["name"] = "ingenuity_mesh"
-
-        lower_prop_mesh = ET.SubElement(mesh_asset, "mesh")
-        lower_prop_mesh.attrib["file"] = model_path + "lower_prop.glb"
-        lower_prop_mesh.attrib["name"] = "lower_prop_mesh"
-
-        upper_prop_mesh = ET.SubElement(mesh_asset, "mesh")
-        upper_prop_mesh.attrib["file"] = model_path + "upper_prop.glb"
-        upper_prop_mesh.attrib["name"] = "upper_prop_mesh"
-
-        worldbody = ET.SubElement(root, "worldbody")
-
-        chassis = ET.SubElement(worldbody, "body")
-        chassis.attrib["name"] = "chassis"
-        chassis.attrib["pos"] = "%g %g %g" % (0, 0, 0)
-
-        chassis_geom = ET.SubElement(chassis, "geom")
-        chassis_geom.attrib["type"] = "box"
-        chassis_geom.attrib["size"] = "%g %g %g" % (chassis_size, chassis_size, chassis_size)
-        chassis_geom.attrib["pos"] = "0 0 0"
-        chassis_geom.attrib["density"] = "50"
-
-        mesh_quat = gymapi.Quat.from_euler_zyx(0.5 * math.pi, 0, 0)
-
-        mesh_geom = ET.SubElement(chassis, "geom")
-        mesh_geom.attrib["type"] = "mesh"
-        mesh_geom.attrib["quat"] = "%g %g %g %g" % (mesh_quat.w, mesh_quat.x, mesh_quat.y, mesh_quat.z)
-        mesh_geom.attrib["mesh"] = "ingenuity_mesh"
-        mesh_geom.attrib["pos"] = "%g %g %g" % (0, 0, 0)
-        mesh_geom.attrib["contype"] = "0"
-        mesh_geom.attrib["conaffinity"] = "0"
-
-        chassis_joint = ET.SubElement(chassis, "joint")
-        chassis_joint.attrib["name"] = "root_joint"
-        chassis_joint.attrib["type"] = "hinge"
-        chassis_joint.attrib["limited"] = "true"
-        chassis_joint.attrib["range"] = "0 0"
-
-        zaxis = gymapi.Vec3(0, 0, 1)
-
-        low_rotor_pos = gymapi.Vec3(0, 0, 0)
-        rotor_separation = gymapi.Vec3(0, 0, 0.025)
-
-        for i, mesh_name in enumerate(["lower_prop_mesh", "upper_prop_mesh"]):
-            angle = 0
-
-            rotor_quat = gymapi.Quat.from_axis_angle(zaxis, angle)
-            rotor_pos = low_rotor_pos + (rotor_separation * i)
-
-            rotor = ET.SubElement(chassis, "body")
-            rotor.attrib["name"] = "rotor_physics_" + str(i)
-            rotor.attrib["pos"] = "%g %g %g" % (rotor_pos.x, rotor_pos.y, rotor_pos.z)
-            rotor.attrib["quat"] = "%g %g %g %g" % (rotor_quat.w, rotor_quat.x, rotor_quat.y, rotor_quat.z)
-
-            rotor_geom = ET.SubElement(rotor, "geom")
-            rotor_geom.attrib["type"] = "cylinder"
-            rotor_geom.attrib["size"] = "%g %g" % (rotor_radius, 0.5 * rotor_thickness)
-            rotor_geom.attrib["density"] = "1000"
-
-            roll_joint = ET.SubElement(rotor, "joint")
-            roll_joint.attrib["name"] = "rotor_roll" + str(i)
-            roll_joint.attrib["type"] = "hinge"
-            roll_joint.attrib["limited"] = "true"
-            roll_joint.attrib["range"] = "0 0"
-            roll_joint.attrib["pos"] = "%g %g %g" % (0, 0, 0)
-
-            rotor_dummy = ET.SubElement(chassis, "body")
-            rotor_dummy.attrib["name"] = "rotor_visual_" + str(i)
-            rotor_dummy.attrib["pos"] = "%g %g %g" % (rotor_pos.x, rotor_pos.y, rotor_pos.z)
-            rotor_dummy.attrib["quat"] = "%g %g %g %g" % (rotor_quat.w, rotor_quat.x, rotor_quat.y, rotor_quat.z)
-
-            rotor_mesh_geom = ET.SubElement(rotor_dummy, "geom")
-            rotor_mesh_geom.attrib["type"] = "mesh"
-            rotor_mesh_geom.attrib["mesh"] = mesh_name
-            rotor_mesh_quat = gymapi.Quat.from_euler_zyx(0.5 * math.pi, 0, 0)
-            rotor_mesh_geom.attrib["quat"] = "%g %g %g %g" % (rotor_mesh_quat.w, rotor_mesh_quat.x, rotor_mesh_quat.y, rotor_mesh_quat.z)
-            rotor_mesh_geom.attrib["contype"] = "0"
-            rotor_mesh_geom.attrib["conaffinity"] = "0"
-
-            dummy_roll_joint = ET.SubElement(rotor_dummy, "joint")
-            dummy_roll_joint.attrib["name"] = "rotor_roll" + str(i)
-            dummy_roll_joint.attrib["type"] = "hinge"
-            dummy_roll_joint.attrib["axis"] = "0 0 1"
-            dummy_roll_joint.attrib["pos"] = "%g %g %g" % (0, 0, 0)
-
-        gymutil._indent_xml(root)
-        ET.ElementTree(root).write("ingenuity.xml")
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -247,8 +150,8 @@ class Hawks(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = "./"
-        asset_file = "ingenuity.xml"
+        asset_root = "../assets"
+        asset_file = "x500/x500.urdf"
 
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = False
@@ -256,6 +159,8 @@ class Hawks(VecTask):
         asset_options.max_angular_velocity = 4 * math.pi
         asset_options.slices_per_cylinder = 40
         asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+        self.num_bodies = self.gym.get_asset_rigid_body_count(asset)
+        self.num_dofs = self.gym.get_asset_dof_count(asset)
 
         asset_root = "/home/sesem/WorldWideWeb/Ouzelum/assets"
         asset_file = "urdf/husky_description/urdf/husky.urdf"
@@ -269,7 +174,7 @@ class Hawks(VecTask):
         asset_options.flip_visual_attachments = True
         asset_options.use_mesh_materials = True
         husky_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
-
+        
         default_pose = gymapi.Transform()
         default_pose.p.z = 1.0
 
@@ -279,25 +184,24 @@ class Hawks(VecTask):
         self.envs = []
         self.actor_handles = []
         self.husky_handles = []
-        for i in range(self.num_envs):
 
+        for i in range(self.num_envs):
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            actor_handle = self.gym.create_actor(env, asset, default_pose, "ingenuity", i, 1, 1)
+            actor_handle = self.gym.create_actor(env, asset, default_pose, "Drone", i, 0, 1)
 
             dof_props = self.gym.get_actor_dof_properties(env, actor_handle)
             dof_props['stiffness'].fill(0)
             dof_props['damping'].fill(0)
             self.gym.set_actor_dof_properties(env, actor_handle, dof_props)
 
-            husky_handle = self.gym.create_actor(env, husky_asset, default_husky_pose, "husky", i, 1, 1)
+            husky_handle = self.gym.create_actor(env, husky_asset, default_husky_pose, "husky", i, 0, 1)
             dof_props = self.gym.get_actor_dof_properties(env, husky_handle)
             dof_props["driveMode"] = (gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL, gymapi.DOF_MODE_VEL)
             dof_props['stiffness'].fill(0)
             dof_props['damping'].fill(100)
             self.gym.set_actor_dof_properties(env, husky_handle, dof_props)
             self.gym.set_actor_dof_velocity_targets(env, husky_handle, [10.0, -20.0, 20.0, -10.0])
-
 
             self.actor_handles.append(actor_handle)
             self.husky_handles.append(husky_handle)
@@ -312,15 +216,19 @@ class Hawks(VecTask):
                 self.rotor_env_offsets[i, ..., 1] = env_origin.y
                 self.rotor_env_offsets[i, ..., 2] = env_origin.z
 
+
     def reset_idx(self, env_ids):
 
         # set rotor speeds
-        self.dof_velocities[:, 1] = -50
-        self.dof_velocities[:, 3] = 50
+        self.dof_velocities[:, 0] = -1000
+        self.dof_velocities[:, 1] = 1000
+        self.dof_velocities[:, 2] = -1000
+        self.dof_velocities[:, 3] = 1000
 
         num_resets = len(env_ids)
 
         actor_indices = self.all_actor_indices[env_ids, 0].flatten()
+
         self.root_states[env_ids] = self.initial_root_states[env_ids]
         self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
@@ -354,37 +262,43 @@ class Hawks(VecTask):
         actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
         if len(reset_env_ids) > 0:
             actor_indices = self.reset_idx(reset_env_ids)
+            self.epi = self.epi + 1
+            if self.flag == True:
+                self.Landoa = self.Landoa + 1
+                self.flag = False
+                f = open(f'metrics/{self.POMDP.pomdp}_{self.POMDP.prob}.txt', "w")
+                f.write(str(self.Landoa))
+                f.close
 
         reset_indices = torch.unique(actor_indices)
         if len(reset_indices) > 0:
             self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(reset_indices), len(reset_indices))
 
         actions = _actions.to(self.device)
-
+    
         thrust_action_speed_scale = 2000
-        vertical_thrust_prop_0 = torch.clamp(actions[:, 2] * thrust_action_speed_scale, -self.thrust_upper_limit, self.thrust_upper_limit)
-        vertical_thrust_prop_1 = torch.clamp(actions[:, 5] * thrust_action_speed_scale, -self.thrust_upper_limit, self.thrust_upper_limit)
-        lateral_fraction_prop_0 = torch.clamp(actions[:, 0:2], -self.thrust_lateral_component, self.thrust_lateral_component)
-        lateral_fraction_prop_1 = torch.clamp(actions[:, 3:5], -self.thrust_lateral_component, self.thrust_lateral_component)
+        self.thrusts += self.dt * thrust_action_speed_scale * actions
+        self.thrusts[:] = tensor_clamp(self.thrusts, self.thrust_lower_limits, self.thrust_upper_limits)
 
-        self.thrusts[:, 0, 2] = self.dt * vertical_thrust_prop_0
-        self.thrusts[:, 0, 0:2] = self.thrusts[:, 0, 2, None] * lateral_fraction_prop_0
-        self.thrusts[:, 1, 2] = self.dt * vertical_thrust_prop_1
-        self.thrusts[:, 1, 0:2] = self.thrusts[:, 1, 2, None] * lateral_fraction_prop_1
+        self.forces[:, 1, 2] = self.thrusts[:, 0]
+        self.forces[:, 2, 2] = self.thrusts[:, 1]
+        self.forces[:, 3, 2] = self.thrusts[:, 2]
+        self.forces[:, 4, 2] = self.thrusts[:, 3]
 
-        self.forces[:, 1] = self.thrusts[:, 0]
-        self.forces[:, 3] = self.thrusts[:, 1]
+        target_dist = torch.sqrt(torch.square(self.target_root_positions - self.root_positions).sum(-1))
+
+        if target_dist < 0.2:
+            self.flag = True
+        # if target_dist < 0.2:
+        #     print("triggered")
+        #     self.forces[:, 1, 2] = 0
+        #     self.forces[:, 2, 2] = 0
+        #     self.forces[:, 3, 2] = 0
+        #     self.forces[:, 4, 2] = 0
 
         # clear actions for reset envs
         self.thrusts[reset_env_ids] = 0.0
         self.forces[reset_env_ids] = 0.0
-
-        # Apply husky dof velocities
-        # self.dof_velocities[:,4] = 10
-        # self.dof_velocities[:,5] = -20
-        # self.dof_velocities[:,6] = 20
-        # self.dof_velocities[:,7] = -10
-        # self.gym.set_dof_velocity_target_tensor(self.sim,gymtorch.unwrap_tensor(self.dof_velocities.contiguous()))
 
         # apply actions
         self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.forces), None, gymapi.LOCAL_SPACE)
@@ -426,16 +340,27 @@ class Hawks(VecTask):
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         
         # self.obs_buf = self.POMDP.observation(self.obs_buf)
+        self.traj = self.root_positions.cpu().numpy()
+        self.log_root_positions()
         return self.obs_buf
+    
+    def log_root_positions(self):
+        # Append the current root position and time to the CSV file
+        self.output_file = f"trajectories/{self.POMDP.pomdp}_{self.POMDP.prob}_ep_{self.epi}.csv"
+        root_pos = np.array(self.traj).reshape((-1, 3))
+        with open(self.output_file, mode='a') as file:
+            writer = csv.writer(file)
+            for i in range(root_pos.shape[0]):
+                writer.writerow(root_pos[i].tolist())
 
     def compute_reward(self):
         self.rew_buf[:], self.reset_buf[:] = compute_ingenuity_reward(
             self.root_positions,
             self.target_root_positions,
-            self.top_plate_extent,
             self.root_quats,
             self.root_linvels,
             self.root_angvels,
+            self.forces,
             self.reset_buf, self.progress_buf, self.max_episode_length
         )
 
@@ -445,18 +370,13 @@ class Hawks(VecTask):
 #####################################################################
 
 @torch.jit.script
-def compute_ingenuity_reward(root_positions, target_root_positions, top_plate_extent, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
+def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, root_linvels, root_angvels, forces, reset_buf, progress_buf, max_episode_length):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # distance to target
     target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
-
-    # Use top_plate extent to calculate reward for landing on the top plate
-    # top_plate_front_left_vertice  = target_root_positions[:,0:2] + (top_plate_extent[0,0:2] * torch.tensor([1,1],device=top_plate_extent.device))
-    # top_plate_front_right_vertice = target_root_positions[:,0:2] + (top_plate_extent[0,0:2] * torch.tensor([1,-1],device=top_plate_extent.device))
-    # top_plate_rear_left_vertice   = target_root_positions[:,0:2] + (top_plate_extent[1,0:2] * torch.tensor([-1,1],device=top_plate_extent.device))
-    # top_plate_rear_right_vertice  = target_root_positions[:,0:2] - (top_plate_extent[1,0:2] * torch.tensor([1,1],device=top_plate_extent.device))
+    
 
     # uprightness
     ups = quat_axis(root_quats, 2)
@@ -466,7 +386,7 @@ def compute_ingenuity_reward(root_positions, target_root_positions, top_plate_ex
     # spinning
     spinnage = torch.abs(root_angvels[..., 2])
     spinnage_reward = 1.0 / (1.0 + spinnage * spinnage)
-
+        
     # combined reward
     # uprigness and spinning only matter when close to the target
     reward = pos_reward + pos_reward * (up_reward + spinnage_reward)
@@ -476,7 +396,6 @@ def compute_ingenuity_reward(root_positions, target_root_positions, top_plate_ex
     die = torch.zeros_like(reset_buf)
     die = torch.where(target_dist > 8.0, ones, die)
     die = torch.where(root_positions[..., 2] < 0.3, ones, die)
-    die = torch.where(root_positions[..., 2] > 3.0, ones, die)
 
     # resets due to episode length
     reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)

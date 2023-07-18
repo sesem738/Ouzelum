@@ -49,6 +49,8 @@ from .trifinger import Trifinger
 from .ouzelum import Ouzelum
 from .hawks import Hawks
 from .lando import Lando
+from .landing import Landing
+from .landed import Landed
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -74,4 +76,6 @@ isaacgym_task_map = {
     "Trifinger": Trifinger,
     "Ouzelum": Ouzelum,
     "Lando": Lando,
+    "Landing": Landing,
+    "Landed": Landed,
 }

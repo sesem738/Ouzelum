@@ -2,23 +2,15 @@ import torch
 
 
 class POMDPWrapper():
-    def __init__(self, pomdp='flicker', flicker_prob=0.7, 
-                 random_noise_sigma=0.4, random_sensor_missing_prob=0.05):
+    def __init__(self, pomdp='random_sensor_missing', flicker_prob=0.1, 
+                 random_noise_sigma=0.4, random_sensor_missing_prob=0.01):
         
         self.pomdp = pomdp
         self.flicker_prob = flicker_prob
         self.random_noise_sigma = random_noise_sigma
         self.random_sensor_missing_prob = random_sensor_missing_prob
-
-        if self.pomdp == 'flicker':
-            self.prob = flicker_prob
-        elif self.pomdp == "random_noise":
-            self.prob = random_noise_sigma
-        elif self.pomdp == "random_sensor_missing":
-            self.prob = random_sensor_missing_prob
-        else:
-            raise ValueError("pomdp was not in ['remove_velocity', 'flickering', 'random_noise', 'random_sensor_missing']!")
-
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        print("POMDP is ", pomdp, " ", random_sensor_missing_prob)
 
     def observation(self, obs):
         if self.pomdp == 'flicker':
