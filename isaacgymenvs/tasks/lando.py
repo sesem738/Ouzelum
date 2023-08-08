@@ -139,7 +139,7 @@ class Lando(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = "../assets"
+        asset_root = "../../assets"
         asset_file = "x500/x500.urdf"
 
         asset_options = gymapi.AssetOptions()
@@ -251,11 +251,7 @@ class Lando(VecTask):
         actor_indices = torch.tensor([], device=self.device, dtype=torch.int32)
         if len(reset_env_ids) > 0:
             actor_indices = self.reset_idx(reset_env_ids)
-            if self.flag == True:
-                self.Landoa = self.Landoa + 1
-                self.flag = False
-                print(self.Landoa)
-
+            
         reset_indices = torch.unique(actor_indices)
         if len(reset_indices) > 0:
             self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(reset_indices), len(reset_indices))
@@ -271,10 +267,10 @@ class Lando(VecTask):
         self.forces[:, 3, 2] = self.thrusts[:, 2]
         self.forces[:, 4, 2] = self.thrusts[:, 3]
 
-        target_dist = torch.sqrt(torch.square(self.target_root_positions - self.root_positions).sum(-1))
+        # target_dist = torch.sqrt(torch.square(self.target_root_positions - self.root_positions).sum(-1))
 
-        if target_dist < 0.2:
-            self.flag = True
+        # if target_dist < 0.2:
+        #     self.flag = True
         # if target_dist < 0.2:
         #     print("triggered")
         #     self.forces[:, 1, 2] = 0

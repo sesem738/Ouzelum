@@ -23,7 +23,7 @@ class POMDPWrapper():
     def observation(self, obs):
         if self.pomdp == 'flicker':
             if torch.rand(1) <= self.flicker_prob:
-                return torch.zeros(obs.shape)
+                return torch.zeros(obs.shape).to("cuda:0")
             else:
                 return obs
         elif self.pomdp == "random_noise":

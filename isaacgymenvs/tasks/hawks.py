@@ -147,7 +147,7 @@ class Hawks(VecTask):
 
         mesh_asset = ET.SubElement(root, "asset")
 
-        model_path = "../assets/glb/ingenuity/"
+        model_path = "../../assets/glb/ingenuity/"
         mesh = ET.SubElement(mesh_asset, "mesh")
         mesh.attrib["file"] = model_path + "chassis.glb"
         mesh.attrib["name"] = "ingenuity_mesh"
