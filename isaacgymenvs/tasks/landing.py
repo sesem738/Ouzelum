@@ -33,7 +33,6 @@ import numpy as np
 
 from .base.vec_task import VecTask
 from isaacgymenvs.utils.torch_jit_utils import *
-from isaacgymenvs.utils.POMDP import POMDPWrapper
 
 from isaacgym import gymutil, gymtorch, gymapi
 
@@ -56,10 +55,6 @@ class Landing(VecTask):
         self.cfg["env"]["numActions"] = 4
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
-
-        # Partially Observability
-        print("okay")
-        self.POMDP = POMDPWrapper(pomdp='flicker', flicker_prob=0.1)
 
         dofs_per_env = self.num_dofs + 4
         
@@ -141,7 +136,7 @@ class Landing(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = "../assets"
+        asset_root = "../../assets"
         asset_file = "x500/x500.urdf"
 
         asset_options = gymapi.AssetOptions()
@@ -310,7 +305,6 @@ class Landing(VecTask):
         self.obs_buf[..., 3:7] = self.root_quats
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
-        self.obs_buf = self.POMDP.observation(self.obs_buf)
         return self.obs_buf
 
     def compute_reward(self):

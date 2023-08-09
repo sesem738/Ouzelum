@@ -36,7 +36,7 @@ if __name__=="__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    writer = SummaryWriter(f"../runs/{args.POMDP}_{args.pomdp_prob}")
+    writer = SummaryWriter(f"runs/RPO_{args.POMDP}_{args.pomdp_prob}")
 
     envs = isaacgymenvs.make(
         seed=0, 
@@ -61,7 +61,7 @@ if __name__=="__main__":
     POMDP = POMDPWrapper(pomdp=args.POMDP, pomdp_prob=args.pomdp_prob)
 
     print("\n------------------------------------\n")
-    print(f"PPO_{args.POMDP}_{args.pomdp_prob}")
+    print(f"RPO_{args.POMDP}_{args.pomdp_prob}")
 
     # Agent Setup
     agent = PPO(envs.single_observation_space, envs.single_action_space, envs.num_envs, device)
@@ -111,7 +111,7 @@ if __name__=="__main__":
             max_reward = mean_rewards
             agent.save(f'./checkpoints/best_{args.POMDP}_{args.pomdp_prob}')
     
-    agent.save(f"./checkpoints/PPO_{args.POMDP}_{args.pomdp_prob}")
+    agent.save(f"./checkpoints/RPO_{args.POMDP}_{args.pomdp_prob}")
     print(max_reward)
 
         

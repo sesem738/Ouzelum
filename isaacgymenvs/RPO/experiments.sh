@@ -2,10 +2,10 @@
 
 clear
 echo "Starting Flicker Experiments"
-python main.py --POMDP=flicker --pomdp_prob=0.5
-python main.py --POMDP=flicker --pomdp_prob=0.5
-python main.py --POMDP=flicker --pomdp_prob=0.5
-python main.py --POMDP=flicker --pomdp_prob=0.5
+python main.py --POMDP=flicker --pomdp_prob=0.1
+python main.py --POMDP=flicker --pomdp_prob=0.2
+python main.py --POMDP=flicker --pomdp_prob=0.3
+python main.py --POMDP=flicker --pomdp_prob=0.4
 python main.py --POMDP=flicker --pomdp_prob=0.5
 
 clear 

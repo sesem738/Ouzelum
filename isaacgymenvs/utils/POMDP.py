@@ -2,20 +2,20 @@ import torch
 
 
 class POMDPWrapper():
-    def __init__(self, pomdp='flicker', flicker_prob=0.7, 
-                 random_noise_sigma=0.4, random_sensor_missing_prob=0.05):
+    def __init__(self, pomdp='flicker', pomdp_prob = 0.1):
         
         self.pomdp = pomdp
-        self.flicker_prob = flicker_prob
-        self.random_noise_sigma = random_noise_sigma
-        self.random_sensor_missing_prob = random_sensor_missing_prob
+        self.flicker_prob = pomdp_prob
+        self.random_noise_sigma = pomdp_prob
+        self.range = (1-self.random_noise_sigma, 1 + self.random_noise_sigma)
 
         if self.pomdp == 'flicker':
-            self.prob = flicker_prob
+            self.prob = self.flicker_prob
         elif self.pomdp == "random_noise":
-            self.prob = random_noise_sigma
-        elif self.pomdp == "random_sensor_missing":
-            self.prob = random_sensor_missing_prob
+            self.prob = self.random_noise_sigma
+        elif self.pomdp == "flickering_and_random_noise":
+            self.flicker_prob = 0.1
+            self.prob = pomdp_prob
         else:
             raise ValueError("pomdp was not in ['remove_velocity', 'flickering', 'random_noise', 'random_sensor_missing']!")
 
@@ -27,29 +27,16 @@ class POMDPWrapper():
             else:
                 return obs
         elif self.pomdp == "random_noise":
-            return (obs + torch.normal(0, self.random_noise_sigma, obs.shape).to("cuda:0"))
-        elif self.pomdp == "random_sensor_missing":
-            obs[:, torch.rand(obs.shape[1]) <= self.random_sensor_missing_prob] = 0
-            return obs
+            noise = torch.FloatTensor(*obs.shape).uniform_(*self.range)
+            return (obs * noise.to("cuda:0"))
         elif self.pomdp == 'flickering_and_random_noise':
             # Flickering
-            if torch.rand() <= self.flicker_prob:
-                new_obs = torch.zeros(obs.shape)
+            if torch.rand(1) <= self.flicker_prob:
+                new_obs = torch.zeros(obs.shape).to("cuda:0")
             else:
                 new_obs = obs
             # Add random noise
-            return (new_obs + torch.randn(0, self.random_noise_sigma, new_obs.shape))
-        elif self.pomdp == 'random_noise_and_random_sensor_missing':
-            # Random noise
-            new_obs = (obs + torch.randn(0, self.random_noise_sigma, obs.shape))
-            # Random sensor missing
-            new_obs[torch.rand(len(new_obs)) <= self.random_sensor_missing_prob] = 0
-            return new_obs
-        elif self.pomdp == 'random_sensor_missing_and_random_noise':
-            # Random sensor missing
-            obs[torch.rand(len(obs)) <= self.random_sensor_missing_prob] = 0
-            # Random noise
-            return (obs + torch.randn(0, self.random_noise_sigma, obs.shape))
+            return (new_obs * torch.FloatTensor(*obs.shape).uniform_(*self.range))
         else:
-            raise ValueError("pomdp was not in ['remove_velocity', 'flickering', 'random_noise', 'random_sensor_missing']!")
+            raise ValueError("POMDP was not in ['flicker_random', 'flicker_duration', 'flicker_freq', 'random_noise']!")
 

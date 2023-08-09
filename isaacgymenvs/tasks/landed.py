@@ -59,7 +59,7 @@ class Landed(VecTask):
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         # Partially Observability
-        self.POMDP = POMDPWrapper(pomdp='flicker', flicker_prob=0.01)
+        self.POMDP = POMDPWrapper(pomdp='flicker', flicker_prob=0.4)
         
         dofs_per_env = self.num_dofs + 4
         
@@ -289,12 +289,11 @@ class Landed(VecTask):
 
         if target_dist < 0.2:
             self.flag = True
-        # if target_dist < 0.2:
-        #     print("triggered")
-        #     self.forces[:, 1, 2] = 0
-        #     self.forces[:, 2, 2] = 0
-        #     self.forces[:, 3, 2] = 0
-        #     self.forces[:, 4, 2] = 0
+            print("triggered")
+            self.forces[:, 1, 2] = 0
+            self.forces[:, 2, 2] = 0
+            self.forces[:, 3, 2] = 0
+            self.forces[:, 4, 2] = 0
 
         # clear actions for reset envs
         self.thrusts[reset_env_ids] = 0.0
@@ -339,19 +338,20 @@ class Landed(VecTask):
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         
-        # self.obs_buf = self.POMDP.observation(self.obs_buf)
+        self.obs_buf = self.POMDP.observation(self.obs_buf)
         self.traj = self.root_positions.cpu().numpy()
+        self.traj2 = self.target_root_positions.cpu().numpy()
         self.log_root_positions()
         return self.obs_buf
     
     def log_root_positions(self):
         # Append the current root position and time to the CSV file
         self.output_file = f"trajectories/{self.POMDP.pomdp}_{self.POMDP.prob}_ep_{self.epi}.csv"
-        root_pos = np.array(self.traj).reshape((-1, 3))
+        flag = np.array([self.POMDP.flago])
+        self.array = np.concatenate((self.traj[0], self.traj2[0], flag))
         with open(self.output_file, mode='a') as file:
             writer = csv.writer(file)
-            for i in range(root_pos.shape[0]):
-                writer.writerow(root_pos[i].tolist())
+            writer.writerow(self.array)
 
     def compute_reward(self):
         self.rew_buf[:], self.reset_buf[:] = compute_ingenuity_reward(
