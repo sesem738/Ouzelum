@@ -31,11 +31,11 @@ class Actor(nn.Module):
         probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
-        else: # new to RPO
-            # sample again to add stochasticity, for the policy update
-            z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to("cuda:0")
-            action_mean = action_mean + z
-            probs = Normal(action_mean, action_std)
+        # else: # new to RPO
+        #     # sample again to add stochasticity, for the policy update
+        #     z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to("cuda:0")
+        #     action_mean = action_mean + z
+        #     probs = Normal(action_mean, action_std)
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1)
 
 class Critic(nn.Module):

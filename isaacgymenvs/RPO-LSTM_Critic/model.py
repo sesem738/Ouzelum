@@ -62,7 +62,6 @@ class Actor(nn.Module):
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
-        print(action_mean)
         if action is None:
             action = probs.sample()
         else: # new to RPO

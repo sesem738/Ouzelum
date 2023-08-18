@@ -26,17 +26,16 @@ class PPO:
         self.max_grad_norm = 1
         self.batch_size = int(self.num_envs * self.rollout_steps)
         self.minibatch_size = int(self.batch_size // 2)
-        self.num_minibatches = 2
-
+        
         self.actor = Actor(self.obs_dim, self.act_dim).to(self.device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=0.0026, eps=1e-5)
         
         self.critic = Critic(self.obs_dim).to(self.device)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=0.0026, eps=1e-5)
 
-    def getAction(self, state, next_lstm_state, next_done):
-        action, logprob, entropy, lstm_state = self.actor(state, next_lstm_state, next_done)
-        return action, logprob, entropy, lstm_state
+    def getAction(self, state, ):
+        action, logprob, entropy = self.actor(state)
+        return action, logprob, entropy
 
     def getGAE(self, next_obs, next_done, rewards, dones, values):
         with torch.no_grad():
@@ -55,7 +54,7 @@ class PPO:
             returns = advantages + values
         return returns, advantages
 
-    def train(self, obs, pomdps, actions, next_obs, next_done, initial_lstm_state, logprobs, rewards, dones):
+    def train(self, obs, pomdps, actions, next_obs, next_done, logprobs, rewards, dones):
 
         values = self.critic(obs)
         returns, advantages = self.getGAE(next_obs, next_done, rewards, dones, values.reshape(16, 4096))
@@ -64,23 +63,19 @@ class PPO:
         b_pomdps = pomdps.reshape((-1,) + self.obs_dim.shape)
         b_actions = actions.reshape((-1,) + self.act_dim.shape)
         b_logprobs = logprobs.reshape(-1)
-        b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
 
-        assert self.num_envs % self.num_minibatches == 0
-        envsperbatch = self.num_envs // self.num_minibatches
-        flatinds = torch.arange(self.batch_size).reshape(self.rollout_steps, self.num_envs)
+
         clipfracs = []
         for epoch in range(self.update_epochs):
-            envinds = torch.from_numpy(np.random.permutation(self.num_envs)).to(self.device)
-            for start in range(0, self.num_envs, envsperbatch):
-                end = start + envsperbatch
-                mbenvinds = envinds[start:end]
-                mb_inds = flatinds[:, mbenvinds].ravel()  # be really careful about the index
+            b_inds = torch.from_numpy(np.random.permutation(self.batch_size)).to(self.device)
+            for start in range(0, self.batch_size, self.minibatch_size):
+                end = start + self.minibatch_size
+                mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, _ = self.actor(b_pomdps[mb_inds], (initial_lstm_state[0][:, mbenvinds], initial_lstm_state[1][:, mbenvinds]), b_dones[mb_inds], b_actions[mb_inds])
+                _, newlogprob, entropy = self.actor(b_pomdps[mb_inds], b_actions[mb_inds])
                 newvalue = self.critic(b_obs[mb_inds])
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()

@@ -34,9 +34,9 @@ if __name__=="__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    writer = SummaryWriter(f"../runs/RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    writer = SummaryWriter(f"../runs/RPO_LSTM_Critic_{args.POMDP}_{args.pomdp_prob}")
 
     envs = isaacgymenvs.make(
         seed=0, 
@@ -56,12 +56,12 @@ if __name__=="__main__":
     envs.single_action_space = envs.action_space
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-    
+
     # Partial Observability
     POMDP = POMDPWrapper(pomdp=args.POMDP, pomdp_prob=args.pomdp_prob)
 
     print("\n------------------------------------\n")
-    print(f"RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
+    print(f"RPO_LSTM_Critic_{args.POMDP}_{args.pomdp_prob}")
 
     # Agent Setup
     agent = PPO(envs.single_observation_space, envs.single_action_space, envs.num_envs, device)
@@ -81,8 +81,13 @@ if __name__=="__main__":
     next_obs = envs.reset()
     pomdp = next_obs.to(device)
     next_done = torch.zeros(args.num_envs, dtype=torch.float).to(device)
+    next_lstm_state = (
+        torch.zeros(agent.actor.lstm.num_layers, args.num_envs, agent.actor.lstm.hidden_size).to(device),
+        torch.zeros(agent.actor.lstm.num_layers, args.num_envs, agent.actor.lstm.hidden_size).to(device),
+    )
 
     while global_step <= args.total_steps:
+        initial_lstm_state = (next_lstm_state[0].clone(), next_lstm_state[1].clone())
         for step in range(0, args.rollout_steps):
             global_step += envs.num_envs
             obs[step] = next_obs
@@ -90,7 +95,7 @@ if __name__=="__main__":
             dones[step] = next_done
             
             with torch.no_grad():
-                action, logprob, _, = agent.getAction(pomdp)
+                action, logprob, _, next_lstm_state = agent.getAction(pomdp, next_lstm_state, next_done)
             actions[step] = action
             logprobs[step] = logprob
             
@@ -104,13 +109,15 @@ if __name__=="__main__":
                         writer.add_scalar("charts/episodic_return", episodic_return, global_step)
                         writer.add_scalar("charts/episodic_length", info["l"][idx], global_step)
         
-        agent.train(obs, pomdps, actions, next_obs, next_done, logprobs, rewards, dones)
+        agent.train(obs, pomdps, actions, next_obs, next_done, initial_lstm_state, logprobs, rewards, dones)
         mean_rewards = torch.mean(rewards)
-        writer.add_scalar("reward/train", mean_rewards, global_step)
         print(f"Step: {global_step}, Average rewards {mean_rewards}")
         if mean_rewards > max_reward:
             max_reward = mean_rewards
-            agent.save(f'./checkpoints/best_{args.POMDP}_{args.pomdp_prob}')
+            agent.save(f'./checkpoints/best_reward_{args.POMDP}_{args.pomdp_prob}')
     
-    agent.save(f"./checkpoints/RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
+    print("Max Reward: ", max_reward)
+    agent.save(f"./checkpoints/RPO_LSTM_Critic_{args.POMDP}_{args.pomdp_prob}")
     writer.close()
+
+        

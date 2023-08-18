@@ -34,7 +34,7 @@ if __name__=="__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    writer = SummaryWriter(f"../runs/RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
+    writer = SummaryWriter(f"../runs/PPO_Critic_{args.POMDP}_{args.pomdp_prob}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -61,7 +61,7 @@ if __name__=="__main__":
     POMDP = POMDPWrapper(pomdp=args.POMDP, pomdp_prob=args.pomdp_prob)
 
     print("\n------------------------------------\n")
-    print(f"RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
+    print(f"PPO_Critic_{args.POMDP}_{args.pomdp_prob}")
 
     # Agent Setup
     agent = PPO(envs.single_observation_space, envs.single_action_space, envs.num_envs, device)
@@ -112,5 +112,5 @@ if __name__=="__main__":
             max_reward = mean_rewards
             agent.save(f'./checkpoints/best_{args.POMDP}_{args.pomdp_prob}')
     
-    agent.save(f"./checkpoints/RPO_Critic_{args.POMDP}_{args.pomdp_prob}")
+    agent.save(f"./checkpoints/PPO_Critic_{args.POMDP}_{args.pomdp_prob}")
     writer.close()

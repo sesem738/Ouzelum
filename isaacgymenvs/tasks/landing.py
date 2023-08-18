@@ -187,7 +187,7 @@ class Landing(VecTask):
             dof_props['stiffness'].fill(0)
             dof_props['damping'].fill(100)
             self.gym.set_actor_dof_properties(env, husky_handle, dof_props)
-            self.gym.set_actor_dof_velocity_targets(env, husky_handle, [10.0, -20.0, 20.0, -10.0])
+            self.gym.set_actor_dof_velocity_targets(env, husky_handle, [-10.0, 20.0, -20.0, 10.0])
 
             self.actor_handles.append(actor_handle)
             self.husky_handles.append(husky_handle)

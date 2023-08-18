@@ -34,9 +34,10 @@ class POMDPWrapper():
             if torch.rand(1) <= self.flicker_prob:
                 new_obs = torch.zeros(obs.shape).to("cuda:0")
             else:
-                new_obs = obs
+                new_obs = obs.to("cuda:0")
+            noise = torch.FloatTensor(*obs.shape).uniform_(*self.range)
             # Add random noise
-            return (new_obs * torch.FloatTensor(*obs.shape).uniform_(*self.range))
+            return (new_obs * noise.to("cuda:0"))
         else:
             raise ValueError("POMDP was not in ['flicker_random', 'flicker_duration', 'flicker_freq', 'random_noise']!")
 
