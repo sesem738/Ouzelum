@@ -112,9 +112,10 @@ if __name__=="__main__":
         agent.train(obs, pomdps, actions, next_obs, next_done, initial_lstm_state, logprobs, rewards, dones)
         mean_rewards = torch.mean(rewards)
         print(f"Step: {global_step}, Average rewards {mean_rewards}")
+        writer.add_scalar("average/average_reward", mean_rewards, global_step)
         if mean_rewards > max_reward:
             max_reward = mean_rewards
-            agent.save(f'./checkpoints/best_reward_{args.POMDP}_{args.pomdp_prob}')
+            agent.save(f'./checkpoints/RPO_LSTM_Critic_best_{args.POMDP}_{args.pomdp_prob}')
     
     print("Max Reward: ", max_reward)
     agent.save(f"./checkpoints/RPO_LSTM_Critic_{args.POMDP}_{args.pomdp_prob}")

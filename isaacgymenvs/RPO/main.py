@@ -19,7 +19,7 @@ def parse_args():
     p.add_argument("--seed", default=0, type=int)
     p.add_argument("--num_envs", type=int, default=4096)
     p.add_argument("--rollout_steps", type=int, default=16)
-    p.add_argument("--total_steps", type=int, default=35000000)
+    p.add_argument("--total_steps", type=int, default=30000000)
     p.add_argument("--headless", action="store_true")
     p.add_argument("--POMDP", default="flicker")
     p.add_argument("--pomdp_prob", type=float, default=0.1)
@@ -109,7 +109,7 @@ if __name__=="__main__":
         writer.add_scalar("average/average_reward", mean_rewards, global_step)
         if mean_rewards > max_reward:
             max_reward = mean_rewards
-            agent.save(f'./checkpoints/best_{args.POMDP}_{args.pomdp_prob}')
+            agent.save(f'./checkpoints/RPO_best_{args.POMDP}_{args.pomdp_prob}')
     
     agent.save(f"./checkpoints/RPO_{args.POMDP}_{args.pomdp_prob}")
     print(max_reward)

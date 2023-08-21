@@ -15,29 +15,25 @@ class Actor(nn.Module):
         self.obs_space = single_observation_space
         self.act_space = single_action_space
         
-        self.embedding = nn.Sequential(
+        self.network = nn.Sequential(
             layer_init(nn.Linear(np.array(self.obs_space.shape).prod(), 512)),
-            nn.ReLU(),
+            nn.Tanh(),
+            layer_init(nn.Linear(512, 256)),
+            nn.Tanh(),
         )
 
-        self.lstm = nn.LSTM(512, 512)
+        self.lstm = nn.LSTM(256, 128)
         for name, param in self.lstm.named_parameters():
             if "bias" in name:
                 nn.init.constant_(param, 0)
             elif "weight" in name:
                 nn.init.orthogonal_(param, 1.0)
 
-        self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(512, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, np.prod(self.act_space.shape)), std=0.01),
-        )
+        self.actor_mean = layer_init(nn.Linear(128, np.prod(self.act_space.shape)), std=0.01)
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(self.act_space.shape)))
 
     def get_states(self, state, lstm_state, done):
-        hidden = self.embedding(state)
+        hidden = self.network(state)
 
         # LSTM logic
         batch_size = lstm_state[0].shape[1]

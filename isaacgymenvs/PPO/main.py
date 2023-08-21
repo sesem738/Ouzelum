@@ -36,7 +36,7 @@ if __name__=="__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    writer = SummaryWriter(f"../runs/tELU_{args.POMDP}_{args.pomdp_prob}")
+    writer = SummaryWriter(f"../runs/PPO_{args.POMDP}_{args.pomdp_prob}")
 
     envs = isaacgymenvs.make(
         seed=0, 
@@ -109,9 +109,9 @@ if __name__=="__main__":
         writer.add_scalar("average/average_reward", mean_rewards, global_step)
         if mean_rewards > max_reward:
             max_reward = mean_rewards
-            agent.save(f'./checkpoints/telu_best_{args.POMDP}_{args.pomdp_prob}')
+            agent.save(f'./checkpoints/PPO_best_{args.POMDP}_{args.pomdp_prob}')
     
-    agent.save(f"./checkpoints/telu_PPO_{args.POMDP}_{args.pomdp_prob}")
+    agent.save(f"./checkpoints/PPO_{args.POMDP}_{args.pomdp_prob}")
     print(max_reward)
 
         

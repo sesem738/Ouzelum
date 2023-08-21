@@ -33,8 +33,11 @@ import numpy as np
 
 from .base.vec_task import VecTask
 from isaacgymenvs.utils.torch_jit_utils import *
+from isaacgymenvs.utils.trajectories import lemniscate, circle, square
+from isaacgymenvs.utils.controllers import differential_drive
 
 from isaacgym import gymutil, gymtorch, gymapi
+from isaacgym.torch_utils import to_torch
 
 
 class Landing(VecTask):
@@ -102,6 +105,12 @@ class Landing(VecTask):
 
         self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, 2))
 
+        # Obtain waypoints
+        self.num_waypoints = 100
+        self.leminiscate_waypoints  = lemniscate(a=4,num_points=self.num_waypoints).to(self.device)
+        self.circle_waypoints  = circle(r=2,num_points=self.num_waypoints).to(self.device)
+        self.square_waypoints  = square(side_length=4,num_points=8).to(self.device)
+
         if self.viewer:
             cam_pos = gymapi.Vec3(2.25, 2.25, 3.0)
             cam_target = gymapi.Vec3(3.5, 4.0, 1.9)
@@ -112,6 +121,9 @@ class Landing(VecTask):
             self.rb_states = gymtorch.wrap_tensor(self.rb_state_tensor).view(self.num_envs, bodies_per_env, 13)
             self.rb_positions = self.rb_states[..., 0:3]
             self.rb_quats = self.rb_states[..., 3:7]
+
+        def set_max_episode_length(self,max_eps_len):
+            self.max_episode_length = max_eps_len
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -136,7 +148,7 @@ class Landing(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = "../assets"
+        asset_root = "../../assets"
         asset_file = "x500/x500.urdf"
 
         asset_options = gymapi.AssetOptions()
@@ -187,11 +199,18 @@ class Landing(VecTask):
             dof_props['stiffness'].fill(0)
             dof_props['damping'].fill(100)
             self.gym.set_actor_dof_properties(env, husky_handle, dof_props)
-            self.gym.set_actor_dof_velocity_targets(env, husky_handle, [-10.0, 20.0, -20.0, 10.0])
+            self.gym.set_actor_dof_velocity_targets(env, husky_handle, [0.0, 0.0, 0.0, 0.0])
 
             self.actor_handles.append(actor_handle)
             self.husky_handles.append(husky_handle)
             self.envs.append(env)
+
+        # Trajectories and scaling
+        self.target_positions = torch.zeros((len(self.husky_handles),2), dtype=torch.float32).to(self.device)
+        self.husky_trajectories = torch.randint(low=0,high=3,size=(len(self.husky_handles),), dtype=torch.uint8).to(self.device)
+        self.trajectories_scaling = torch.rand(size=(len(self.husky_handles),), dtype=torch.float32).to(self.device)*(1.2 - 0.8) + 0.8
+        self.trajectories_direction = torch.randint(0, 2, (len(self.husky_handles),), dtype=torch.float32).to(self.device) * 2 - 1
+        self.target_indices = torch.zeros(len(self.husky_handles)).long().to(self.device)
 
         if self.debug_viz:
             # need env offsets for the rotors
@@ -202,6 +221,27 @@ class Landing(VecTask):
                 self.rotor_env_offsets[i, ..., 1] = env_origin.y
                 self.rotor_env_offsets[i, ..., 2] = env_origin.z
 
+    def reset_completed_trajectories(self, min_scaling: float = 0.8, max_scaling: float = 1.2):
+        """
+        Update trajectories randomly if end of trajectory is reached.
+        Also, set waypoint scaling and trajectory direction to randomize each trajectory. 
+
+        Trajectories:
+            0 - lemniscate
+            1 - circle
+            2 - square
+        """
+
+        indices = torch.where(
+            (self.target_indices==self.num_waypoints) |                # If at last index
+            ((self.husky_trajectories==2) & (self.target_indices>3))   # If 2 is square & at its last index
+            )
+        
+        self.husky_trajectories[indices] = torch.randint(low=0,high=3,size=self.husky_trajectories[indices].shape, dtype=torch.uint8).to(self.device)
+        self.trajectories_scaling[indices] = torch.rand(size=self.trajectories_scaling[indices].shape, dtype=torch.float32).to(self.device)*(max_scaling - min_scaling) + min_scaling    # Between 0.8 and 1.2
+        self.trajectories_direction[indices] = torch.randint(0, 2, self.trajectories_direction[indices].shape, dtype=torch.float32).to(self.device) * 2 - 1
+        self.target_indices[indices] = 0
+        return indices
 
     def reset_idx(self, env_ids):
 
@@ -240,6 +280,9 @@ class Landing(VecTask):
             return torch.unique(torch.cat([actor_indices,husky_indices]))
         return actor_indices
 
+    def get_reset_ids(self):
+        return self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+
     def pre_physics_step(self, _actions):
 
         # resets
@@ -267,9 +310,59 @@ class Landing(VecTask):
         self.thrusts[reset_env_ids] = 0.0
         self.forces[reset_env_ids] = 0.0
 
-        # apply actions
+        # apply actions to UAV
         self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.forces), None, gymapi.LOCAL_SPACE)
 
+        # Apply actions to husky
+        self.set_husky_actions()
+
+    def set_husky_actions(self, dist_thresh: float = 0.2):
+        """
+        Set husky velocities for sim, based on target positions.
+        Target positions are based on trajectories that are randomly selected and scaled per husky.
+        """
+
+        # Update target waypoints for each husky
+        for idx in range(0,len(self.husky_trajectories)):
+            if self.husky_trajectories[idx] == 0:
+                self.target_positions[idx] = self.leminiscate_waypoints[self.target_indices[idx]]
+            elif self.husky_trajectories[idx] == 1:
+                self.target_positions[idx] = self.circle_waypoints[self.target_indices[idx]]
+            elif self.husky_trajectories[idx] == 2:
+                self.target_positions[idx] = self.square_waypoints[self.target_indices[idx]]
+            else:
+                raise Exception("Undefined trajectory!")
+
+        # Calculate distance to husky's target
+        self.target_positions *= (self.trajectories_scaling * self.trajectories_direction).unsqueeze(1)
+        dist = (self.target_positions - self.husky_positions[:, 0:2]).pow(2).sum(1).sqrt()
+
+        # If target within threshold, update waypoints 
+        proximity_ids = torch.where(dist < dist_thresh)
+        self.target_indices[proximity_ids] += 1
+
+        # Reset & randomize husky trajectory
+        reset_indices = self.reset_completed_trajectories()
+        changed_indices = torch.cat((proximity_ids[0],reset_indices[0])).unique()
+
+        # Get new position 
+        for idx in changed_indices:
+            if self.husky_trajectories[idx] == 0:
+                self.target_positions[idx] = self.leminiscate_waypoints[self.target_indices[idx]]
+            elif self.husky_trajectories[idx] == 1:
+                self.target_positions[idx] = self.circle_waypoints[self.target_indices[idx]]
+            elif self.husky_trajectories[idx] == 2:
+                self.target_positions[idx] = self.square_waypoints[self.target_indices[idx]]
+            else:
+                raise Exception("Undefined trajectory!")
+            self.target_positions[idx] *= (self.trajectories_scaling[idx] * self.trajectories_direction[idx])
+
+        # Obtain motor commands
+        _, _, husky_heading = get_euler_xyz(self.husky_quats)
+        motor_speed = differential_drive(self.husky_positions, self.target_positions, husky_heading, (3.0,1000))
+        self.dof_velocities[:,4:] = motor_speed
+        self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_velocities.clone()))
+    
     def post_physics_step(self):
 
         self.progress_buf += 1
@@ -282,6 +375,8 @@ class Landing(VecTask):
 
         self.compute_observations()
         self.compute_reward()
+
+        self.extras["reset_ids"] = self.get_reset_ids()
 
         # debug viz
         if self.viewer and self.debug_viz:

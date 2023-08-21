@@ -12,7 +12,6 @@ def map_to_pi(angle):
 
     return angle
 
-
 def differential_drive(current_pos, target_pos, current_heading, p_gain: tuple([float, float]) = (0.5, 10),
                        ang_thresh: float = 0.005):
     # husky parameters
@@ -35,10 +34,12 @@ def differential_drive(current_pos, target_pos, current_heading, p_gain: tuple([
     right_speeds = (2 * linear_velocities - angular_velocities * wheel_base) / (2 * wheel_radius)
 
     # Scale speeds if necessary
-    max_wheel_speed = max(abs(left_speeds), abs(right_speeds))
-    if max_wheel_speed > max_speed:
-        scaling_factor = max_speed / max_wheel_speed
-        left_speeds *= scaling_factor
-        right_speeds *= scaling_factor
+    max_wheel_speed = torch.max(abs(left_speeds), abs(right_speeds))
+    max_indices = torch.where(max_wheel_speed > max_speed)
+    scaling_factor = max_speed / max_wheel_speed
+    left_speeds[max_indices] *= scaling_factor[max_indices]
+    right_speeds[max_indices]  *= scaling_factor[max_indices] 
 
     return torch.stack((right_speeds, left_speeds, right_speeds, left_speeds), dim=-1)
+
+
