@@ -136,7 +136,7 @@ class Landing(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = "../../assets"
+        asset_root = "../assets"
         asset_file = "x500/x500.urdf"
 
         asset_options = gymapi.AssetOptions()

@@ -59,7 +59,7 @@ class Landed(VecTask):
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         # Partially Observability
-        self.POMDP = POMDPWrapper(pomdp='flicker', flicker_prob=0.4)
+        self.POMDP = POMDPWrapper(pomdp='flicker', pomdp_prob=0.01)
         
         dofs_per_env = self.num_dofs + 4
         
@@ -289,7 +289,6 @@ class Landed(VecTask):
 
         if target_dist < 0.2:
             self.flag = True
-            print("triggered")
             self.forces[:, 1, 2] = 0
             self.forces[:, 2, 2] = 0
             self.forces[:, 3, 2] = 0
@@ -347,8 +346,8 @@ class Landed(VecTask):
     def log_root_positions(self):
         # Append the current root position and time to the CSV file
         self.output_file = f"trajectories/{self.POMDP.pomdp}_{self.POMDP.prob}_ep_{self.epi}.csv"
-        flag = np.array([self.POMDP.flago])
-        self.array = np.concatenate((self.traj[0], self.traj2[0], flag))
+        # flag = np.array([self.POMDP.flago])
+        self.array = np.concatenate((self.traj[0], self.traj2[0]))
         with open(self.output_file, mode='a') as file:
             writer = csv.writer(file)
             writer.writerow(self.array)
