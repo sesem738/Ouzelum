@@ -8,6 +8,7 @@ import torch
 from agent import PPO
 from torch.utils.tensorboard import SummaryWriter
 from utils import RecordEpisodeStatisticsTorch, ExtractObsWrapper
+from isaacgymenvs.utils.POMDP import POMDPWrapper
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -17,6 +18,8 @@ def parse_args():
     p.add_argument("--rollout_steps", type=int, default=16)
     p.add_argument("--total_steps", type=int, default=30000000)
     p.add_argument("--headless", action="store_true")
+    p.add_argument("--POMDP", default="flicker")
+    p.add_argument("--pomdp_prob", type=float, default=0.1)
     
     args = p.parse_args()
     return args
@@ -29,6 +32,8 @@ if __name__=="__main__":
     torch.manual_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    writer = SummaryWriter()
 
     envs = isaacgymenvs.make(
         seed=0, 
@@ -49,9 +54,15 @@ if __name__=="__main__":
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
+    # Partial Observability
+    POMDP = POMDPWrapper(pomdp=args.POMDP, pomdp_prob=args.pomdp_prob)
+
+    print("\n------------------------------------\n")
+    print(f"PPO_{args.POMDP}_{args.pomdp_prob}")
+
     # Agent Setup
     agent = PPO(envs.single_observation_space, envs.single_action_space, envs.num_envs, device)
-    agent.load('PPO_06_10_1330')
+    agent.load('checkpoints/PPO_best_flicker_0.3')
 
     # Storage setup
     rewards = torch.zeros((args.rollout_steps, args.num_envs), dtype=torch.float).to(device)
@@ -71,9 +82,12 @@ if __name__=="__main__":
         logprobs = logprob
         
         next_obs, rewards, next_done, info = envs.step(action)
+        next_obs = POMDP.observation(next_obs)
         
         mean_rewards = torch.mean(rewards)
+        writer.add_scalar("reward/play", mean_rewards, global_step)
         print(f"Step: {global_step}, Average rewards {mean_rewards}")
     
 
+    writer.close()
         

@@ -15,7 +15,7 @@ from isaacgymenvs.utils.POMDP import POMDPWrapper
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--env", default="Lando")          		   
+    p.add_argument("--env", default="Landing")          		   
     p.add_argument("--seed", default=0, type=int)
     p.add_argument("--num_envs", type=int, default=4096)
     p.add_argument("--rollout_steps", type=int, default=16)
@@ -106,7 +106,7 @@ if __name__=="__main__":
         
         agent.train(obs, pomdps, actions, next_obs, next_done, logprobs, rewards, dones)
         mean_rewards = torch.mean(rewards)
-        writer.add_scalar("reward/train", mean_rewards, global_step)
+        writer.add_scalar("average/average_reward", mean_rewards, global_step)
         print(f"Step: {global_step}, Average rewards {mean_rewards}")
         if mean_rewards > max_reward:
             max_reward = mean_rewards

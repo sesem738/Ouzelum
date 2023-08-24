@@ -15,7 +15,7 @@ from isaacgymenvs.utils.POMDP import POMDPWrapper
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--env", default="Lando")          		   
+    p.add_argument("--env", default="Landing")          		   
     p.add_argument("--seed", default=0, type=int)
     p.add_argument("--num_envs", type=int, default=4096)
     p.add_argument("--rollout_steps", type=int, default=16)
