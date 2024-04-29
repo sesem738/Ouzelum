@@ -15,7 +15,8 @@ root_dir = os.path.dirname(os.path.realpath(__file__))
 INSTALL_REQUIRES = [
     # RL
     "gym==0.24.1",
-    "torch",
+    # "torch",
+    "ahrs",
     "omegaconf",
     "termcolor",
     "hydra-core>=1.1",

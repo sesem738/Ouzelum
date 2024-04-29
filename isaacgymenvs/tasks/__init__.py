@@ -52,6 +52,7 @@ from .lando import Lando
 from .landing import Landing
 from .landed import Landed
 from .lee_landed import LeeLanded
+from .ekf_lee_landed import EKFLeeLanded
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -80,4 +81,5 @@ isaacgym_task_map = {
     "Landing": Landing,
     "Landed": Landed,
     "LeeLanded":LeeLanded,
+    "EKFLeeLanded":EKFLeeLanded
 }
