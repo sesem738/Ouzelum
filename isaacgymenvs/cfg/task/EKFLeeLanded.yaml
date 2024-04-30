@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 5
-  maxEpisodeLength: 2000
+  maxEpisodeLength: 700
   enableDebugVis: False
   pomdp_prob: ${...pomdp_prob}
   POMDP: ${...POMDP}
@@ -18,7 +18,7 @@ env:
   ConvergenceTime: 300 # ms
   attach_pos_sensor: True
   attach_vel_sensor: True
-  position_sensor_freq: 75
+  position_sensor_freq: 20
   velocity_sensor_freq: 75
 
   # set to True if you use camera sensors in the environment

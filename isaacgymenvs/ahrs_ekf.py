@@ -873,8 +873,8 @@ References
 """
 
 import numpy as np
-from ..common.orientation import q2R, ecompass, acc2q
-from ..common.mathfuncs import cosd, sind, skew
+from ahrs.common.orientation import q2R, ecompass, acc2q
+from ahrs.common.mathfuncs import cosd, sind, skew
 
 class EKF:
     """
@@ -1017,8 +1017,8 @@ class EKF:
         # Magnetic Reference Vector
         if mref is None:
             # Local magnetic reference of Munich, Germany
-            from ..common.mathfuncs import MUNICH_LATITUDE, MUNICH_LONGITUDE, MUNICH_HEIGHT
-            from ..utils.wmm import WMM
+            from ahrs.common.mathfuncs import MUNICH_LATITUDE, MUNICH_LONGITUDE, MUNICH_HEIGHT
+            from ahrs.utils.wmm import WMM
             wmm = WMM(latitude=MUNICH_LATITUDE, longitude=MUNICH_LONGITUDE, height=MUNICH_HEIGHT)
             self.m_ref = np.array([wmm.X, wmm.Y, wmm.Z]) if frame.upper() == 'NED' else np.array([wmm.Y, wmm.X, -wmm.Z])
         elif isinstance(mref, (int, float)):

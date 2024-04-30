@@ -336,6 +336,8 @@ class EKFLeeLanded(VecTask):
 
         ########################## Filtering Stuff #################################
 
+        wait_for_init_convergence = self.sim_step_count<self.ConvergenceTime
+
         # Method 1: Accels from force sensor
         # print(-self.sensor_forces/2) # mass of 2 units ???
 
@@ -344,7 +346,7 @@ class EKFLeeLanded(VecTask):
         linear_accels = dv/self.dt
 
         # Let filters converge
-        if self.sim_step_count<self.ConvergenceTime:
+        if wait_for_init_convergence:
             self.Q_state[:] = self.root_quats.cpu()[:,[3,0,1,2]].numpy()
         
         if len(reset_env_ids) > 0:
@@ -365,32 +367,44 @@ class EKFLeeLanded(VecTask):
         ekf_accel[:,2] = ekf_accel[:,2] + 9.8
         ekf_accel = my_quat_rotate(self.root_quats,ekf_accel)
 
+        if wait_for_init_convergence:
+            gyr_data=self.root_angvels.cpu().numpy()
+            acc_data=ekf_accel.cpu().numpy()
+        else:
+            gyr_data=self.POMDP.observation(self.root_angvels.cpu().numpy())
+            acc_data=self.POMDP.observation(ekf_accel.cpu().numpy())
+
         # EKF stepping
         for idx in range(self.num_envs):
             # Angle measurement sensor
-            ang_sensor_data = self.root_quats.cpu()[idx,[3,0,1,2]].numpy()
+            if wait_for_init_convergence:
+                ang_sensor_data = self.root_quats.cpu()[idx,[3,0,1,2]].numpy()
+            else:
+                ang_sensor_data = self.POMDP.observation(self.root_quats.cpu()[idx,[3,0,1,2]].numpy())
 
             # Prediction & correction steps
             self.Q_state[idx] = self.ekfs[idx].update(
                 q=self.Q_state[idx]/np.linalg.norm(self.Q_state[idx]),
-                gyr=self.root_angvels[idx].cpu().numpy(),
-                acc=ekf_accel[idx].cpu().numpy(),
+                gyr=gyr_data[idx],
+                acc=acc_data[idx],
                 ang=ang_sensor_data)
             self.Q_cov[idx,:] = self.ekfs[idx].P.diagonal()
 
         # self.log_ekffilter_state(self.Q_state,self.Q_cov)
 
         ########################## Linear KF #################################
-        if self.sim_step_count<self.ConvergenceTime:
+        # Inputs for position & velocity filter
+        if wait_for_init_convergence:
             orientation = self.root_quats
+            pos_data = self.root_positions
+            vel_data = self.root_linvels
             flip_Qw = True
         else:
+            linear_accels = self.POMDP.observation(linear_accels)
             orientation = torch.Tensor(self.Q_state).to(self.device)
+            pos_data = self.POMDP.observation(self.root_positions)
+            vel_data = self.POMDP.observation(self.root_linvels)
             flip_Qw = False
-
-        # Measurements
-        pos_data = self.root_positions
-        vel_data = self.root_linvels
         pos_var = torch.Tensor([1,1,1]).to(device='cuda:0')*0.0000001
         vel_var = torch.Tensor([1,1,1]).to(device='cuda:0')*0.0000001
 
@@ -401,17 +415,25 @@ class EKFLeeLanded(VecTask):
 
         # Step LinearKF
         for idx in range(self.num_envs):
-            self.pvfilters[idx].prediction_step(linear_accels[idx],orientation[idx],dt=self.dt,sim_time=self.sim_step_count*self.dt,flip_Qw=flip_Qw)
+            self.pvfilters[idx].prediction_step(
+                linear_accels[idx],
+                orientation[idx],
+                dt=self.dt,
+                sim_time=self.sim_step_count*self.dt,
+                flip_Qw=flip_Qw)
+            
+            pos_sensor_trigger = self.attach_pos_sensor & ((self.pos_trigger_count*self.dt)>(1/self.pos_sensor_freq))
+            vel_sensor_trigger = self.attach_vel_sensor & ((self.vel_trigger_count*self.dt)>(1/self.vel_sensor_freq))
 
             # Update from position measurement
-            if (self.attach_pos_sensor & ((self.pos_trigger_count*self.dt)>(1/self.pos_sensor_freq))):
+            if pos_sensor_trigger:
                 self.pvfilters[idx].correction_step(gps_data=pos_data[idx],gps_var=pos_var)
                 self.pos_trigger_count = 0
             else:
                 self.pos_trigger_count = self.pos_trigger_count +1
 
             # Update from velocity measurement
-            if (self.attach_vel_sensor & ((self.vel_trigger_count*self.dt)>(1/self.vel_sensor_freq))):
+            if vel_sensor_trigger:
                 self.pvfilters[idx].correction_step(vel_data=vel_data[idx],vel_var=vel_var)
                 self.vel_trigger_count  = 0
             else:
@@ -424,7 +446,7 @@ class EKFLeeLanded(VecTask):
         state = state.reshape(self.num_envs,9).to(self.device)
         cov = cov.reshape(self.num_envs,9).to(self.device)
         
-        dist = torch.sqrt(torch.square(state[:,0:3] - self.root_positions).sum(-1))
+        # dist = torch.sqrt(torch.square(state[:,0:3] - self.root_positions).sum(-1))
         # print('Estimate distance: ',dist)
 
         # self.log_pvfilter_state(state,cov)
@@ -434,38 +456,42 @@ class EKFLeeLanded(VecTask):
         ########################## Controller Stuff #################################
 
         mg = 2*(-self.sim_params.gravity.z)
-        target = torch.zeros((self.num_envs,3),device=self.device)
+        # target = torch.zeros((self.num_envs,3),device=self.device)
         target_command = torch.zeros((self.num_envs,4),device=self.device)
 
-        if self.sim_step_count<self.ConvergenceTime:
+        # target = self.target_root_positions.detach().clone()
+        # target[:,2] = target[:,2]  + 0.1
+        if wait_for_init_convergence:
             # Set stationary as target
-            target[:] = self.root_positions
-            self.target_waypoints[:] = target
-        else:
-            target[:] = self.target_root_positions
-        self.target_waypoints[:] = self.target_root_positions
+            self.target_waypoints = self.target_root_positions.detach().clone()
 
-        # # Get target distance
-        target_vector = target - self.root_positions
+        # Get target distance
+        target_vector = self.target_root_positions - self.root_positions
         target_dist = torch.sqrt(torch.square(target_vector).sum(-1))
-        # waypoint_vector = self.target_waypoints - self.root_positions
-        # waypoint_dist = torch.sqrt(torch.square(waypoint_vector).sum(-1))
 
-        # # target_dist = torch.sqrt(torch.square(self.target_root_positions - self.root_positions).sum(-1))
-        # # print('Distance to target: ', target_dist)
+        waypoint_vector = self.target_waypoints - self.root_positions
+        waypoint_dist = torch.sqrt(torch.square(waypoint_vector).sum(-1))
 
-        # # If waypoint is within reach, set new waypoint as unit vector to target
-        # if self.sim_step_count>=self.ConvergenceTime:
-        #     waypoint_dist_check = (waypoint_dist < 0.05) | (waypoint_dist > 0.15)
-        #     if not (waypoint_dist==0).any():
-        #         self.target_waypoints[waypoint_dist_check] = torch.div(
-        #             target_vector[waypoint_dist_check],
-        #             target_dist[waypoint_dist_check].reshape(waypoint_dist_check.sum().int(),1)
-        #             )*0.1
+        # If waypoint is within reach, set new waypoint as unit vector to target
+        if not wait_for_init_convergence:
+            waypoint_dist_check = (waypoint_dist < 0.5) | (waypoint_dist > 1.0)
+            if not (waypoint_dist==0).any():
+                raised_target = self.target_root_positions[waypoint_dist_check].detach().clone()
+                raised_target[:,2] += 0.7
+                raised_target_vector = raised_target - self.root_positions[waypoint_dist_check]
+                raised_target_dist = torch.sqrt(torch.square(raised_target_vector).sum(-1))
+                self.target_waypoints[waypoint_dist_check] = torch.div(
+                    raised_target_vector,
+                    raised_target_dist.reshape(waypoint_dist_check.sum().int(),1)
+                    )*0.75 + self.root_positions[waypoint_dist_check].detach().clone()
+            target_dist_check = target_dist < 0.75
+            if target_dist_check.any():
+                self.target_waypoints[target_dist_check] = self.target_root_positions[target_dist_check]
+                self.target_waypoints[target_dist_check,2] += 0.09
         
         target_command[:,0:3] = self.target_waypoints
         # Step controller
-        if self.sim_step_count<self.ConvergenceTime:
+        if wait_for_init_convergence:
             output_thrusts_mass_normalized, output_torques_inertia_normalized = self.controller(self.root_states, target_command)
         else:
             Estimates = torch.zeros(self.num_envs,13,device=self.device)
@@ -481,19 +507,21 @@ class EKFLeeLanded(VecTask):
         #################################################################################
         target_dist_check = target_dist<0.25
         if (target_dist_check).any():
-            if self.sim_step_count>=self.ConvergenceTime:
+            if not wait_for_init_convergence:
                 self.flag[target_dist_check] = True
-                print(self.flag[target_dist_check],target_dist)
+                
             # Force landing
             self.forces[target_dist_check, :] = 0
             self.torques[target_dist_check, :] = 0
+        
+        # print(self.flag[self.flag==True],target_dist)
 
         # clear actions for reset envs
         self.thrusts[reset_env_ids] = 0.0
         self.forces[reset_env_ids] = 0.0
 
         # apply actions
-        if self.sim_step_count>self.ConvergenceTime:
+        if not wait_for_init_convergence:
             self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.forces), gymtorch.unwrap_tensor(self.torques), gymapi.LOCAL_SPACE)
         else:
             self.forces[:] = 0
@@ -598,7 +626,7 @@ class EKFLeeLanded(VecTask):
         self.gym.refresh_force_sensor_tensor(self.sim)
 
         self.target_root_positions[:,0:2] = self.husky_states[:,0:2].clone()
-        self.target_root_positions[:,0] += 0.08 # Top plate X-shift
+        self.target_root_positions[:,0] -= 0.08 # Top plate X-shift
 
         self.sim_step_count = self.sim_step_count + 1
 
